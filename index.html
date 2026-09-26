@@ -113,6 +113,30 @@ const firebaseConfig = {
 firebase.initializeApp(firebaseConfig);
 const rtdb = firebase.database();
 
+let audioCtx=null, lastPingKey=null;
+function ensureAudio(){ try{ if(!audioCtx) audioCtx=new (window.AudioContext||window.webkitAudioContext)(); if(audioCtx.state==='suspended') audioCtx.resume(); }catch(e){} }
+function tone(freq,duration,type,vol){
+  if(!audioCtx) return;
+  const osc=audioCtx.createOscillator(), gain=audioCtx.createGain();
+  osc.type=type||'sine'; osc.frequency.value=freq;
+  const now=audioCtx.currentTime;
+  gain.gain.setValueAtTime(vol||0.2, now);
+  gain.gain.exponentialRampToValueAtTime(0.001, now+duration);
+  osc.connect(gain); gain.connect(audioCtx.destination);
+  osc.start(now); osc.stop(now+duration);
+}
+function playPing(){ ensureAudio(); tone(880,0.18,'sine',0.25); setTimeout(()=>tone(1320,0.16,'sine',0.2),100); }
+function playBip(){ ensureAudio(); tone(520,0.09,'square',0.15); }
+function playWhoosh(){
+  ensureAudio(); if(!audioCtx) return;
+  const osc=audioCtx.createOscillator(), gain=audioCtx.createGain();
+  osc.type='sawtooth';
+  const now=audioCtx.currentTime;
+  osc.frequency.setValueAtTime(200,now); osc.frequency.exponentialRampToValueAtTime(900, now+0.25);
+  gain.gain.setValueAtTime(0.001, now); gain.gain.linearRampToValueAtTime(0.18, now+0.05); gain.gain.exponentialRampToValueAtTime(0.001, now+0.3);
+  osc.connect(gain); gain.connect(audioCtx.destination);
+  osc.start(now); osc.stop(now+0.3);
+}
 let myId=null, myName='', roomCode=null, state=null, gameRef=null;
 const RANKS=['2','3','4','5','6','7','8','9','10','J','Q','K','A'];
 const SUITS=[{s:'♠',c:'black'},{s:'♥',c:'red'},{s:'♦',c:'red'},{s:'♣',c:'black'}];
@@ -221,8 +245,10 @@ function render(){
       const cur=state.players.find(p=>p.id===curId);
       const isDealer = state.turnIndex===state.turnOrder.length-1;
       banner.textContent = curId===myId ? "It's your turn!" : (cur.name+"'s turn...");
+      const turnKey=(state.roundNum||0)+'-'+state.turnIndex;
+      if(turnKey!==lastPingKey){ lastPingKey=turnKey; if(curId===myId) playPing(); }
       if(curId===myId){
-        const keepBtn=document.createElement('button'); keepBtn.textContent='Keep'; keepBtn.onclick=()=>act('keep');
+        const keepBtn=document.createElement('button'); keepBtn.textContent='Keep'; keepBtn.onclick=()=>{ playBip(); act('keep'); };
         ar.appendChild(keepBtn);
         const nextP = !isDealer ? state.players.find(p=>p.id===state.turnOrder[state.turnIndex+1]) : null;
         const nextIsKing = nextP && nextP.card.r===11 && nextP.card.si===0;
@@ -231,7 +257,7 @@ function render(){
           note.textContent='🚫 No swap available — '+nextP.name+' holds the King of Spades.';
           ar.appendChild(note);
         } else {
-          const swapBtn=document.createElement('button'); swapBtn.textContent=isDealer?'Swap with deck':('Swap with '+nextP.name); swapBtn.onclick=()=>act('swap');
+          const swapBtn=document.createElement('button'); swapBtn.textContent=isDealer?'Swap with deck':('Swap with '+nextP.name); swapBtn.onclick=()=>{ playWhoosh(); act('swap'); };
           ar.appendChild(swapBtn);
         }
       }
@@ -340,8 +366,8 @@ async function joinRoom(){
 }
 
 myId=uid();
-document.getElementById('createBtn').onclick=createRoom;
-document.getElementById('joinBtn').onclick=joinRoom;
+document.getElementById('createBtn').onclick=()=>{ ensureAudio(); createRoom(); };
+document.getElementById('joinBtn').onclick=()=>{ ensureAudio(); joinRoom(); };
 </script>
 </body>
 </html>
