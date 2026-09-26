@@ -184,7 +184,7 @@ function render(){
       hc.appendChild(btn);
     }
     document.getElementById('waitMsg').textContent = active.length<2 ? 'Waiting for at least 2 players...' : (isHost()? '' : 'Waiting for host to start the round...');
-  } else if(state.phase==='playing' || state.phase==='reveal'){
+  } else if(state.phase==='playing' || state.phase==='awaiting_reveal' || state.phase==='revealed'){
     playP.classList.remove('hidden');
     const me=state.players.find(p=>p.id===myId);
     document.getElementById('myCard').innerHTML = me && !me.out ? cardEl(me.card,false,true) : '<i>spectating</i>';
@@ -199,11 +199,11 @@ function render(){
       kp.innerHTML='👑 <b>'+esc(kingHolder.name)+'</b> is holding the King of Spades — protected from swaps.';
     } else { kp.classList.add('hidden'); }
     const strip=document.getElementById('tableStrip'); strip.innerHTML='';
+    const revealed = state.phase==='revealed';
     state.turnOrder.forEach(pid=>{
       const p=state.players.find(x=>x.id===pid);
       const seat=document.createElement('div'); seat.className='seat';
-      const reveal = state.phase==='reveal';
-      seat.innerHTML = cardEl(p.card, !reveal) + '<div class="name">'+esc(p.name)+(pid===myId?' (you)':'')+'</div><div class="lives">'+('♥'.repeat(Math.max(p.lives,0)))+'</div>';
+      seat.innerHTML = cardEl(p.card, !revealed) + '<div class="name">'+esc(p.name)+(pid===myId?' (you)':'')+'</div><div class="lives">'+('♥'.repeat(Math.max(p.lives,0)))+'</div>';
       strip.appendChild(seat);
     });
     const ar=document.getElementById('actionRow'); ar.innerHTML='';
@@ -228,9 +228,13 @@ function render(){
           ar.appendChild(swapBtn);
         }
       }
+    } else if(state.phase==='awaiting_reveal'){
+      banner.textContent='All cards played — waiting for the host to reveal...';
+      if(isHost()){ const btn=document.createElement('button'); btn.textContent='Reveal Cards'; btn.onclick=doReveal; rc.appendChild(btn); }
     } else {
-      banner.textContent='All cards played — time to reveal!';
-      if(isHost()){ const btn=document.createElement('button'); btn.textContent='Reveal Cards'; btn.onclick=revealRound; rc.appendChild(btn); }
+      banner.textContent='Cards revealed!';
+      if(isHost()){ const btn=document.createElement('button'); btn.textContent='Continue'; btn.onclick=finishRound; rc.appendChild(btn); }
+      else { const note=document.createElement('div'); note.style.opacity='.8'; note.textContent='Waiting for host to continue...'; rc.appendChild(note); }
     }
     const lb=document.getElementById('logBox'); lb.innerHTML=(state.log||[]).map(m=>'<div>'+esc(m)+'</div>').join('');
     lb.scrollTop=lb.scrollHeight;
@@ -255,8 +259,7 @@ async function startRound(){
   const turnOrder=order.slice(rot).concat(order.slice(0,rot));
   state.players.forEach(p=>{ p.card=null; });
   turnOrder.forEach(pid=>{ const p=state.players.find(x=>x.id===pid); p.card=deck.pop(); });
-  state.deck=deck; state.turnOrder=turnOrder; state.turnIndex=0; state.phase='playing';
-  state.roundNum=(state.roundNum||0)+1;
+  state.deck=deck; state.turnOrder=turnOrder; state.turnIndex=0; state.phase='playing';  state.roundNum=(state.roundNum||0)+1;
   log('Round '+state.roundNum+' dealt.');
   await save();
 }
@@ -276,10 +279,15 @@ async function act(action){
     }
   } else { log(player.name+' kept their card.'); }
   state.turnIndex++;
-  if(state.turnIndex>=state.turnOrder.length) state.phase='reveal';
+  if(state.turnIndex>=state.turnOrder.length) state.phase='awaiting_reveal';
   await save();
 }
-async function revealRound(){
+async function doReveal(){
+  state.phase='revealed';
+  log('Cards revealed.');
+  await save();
+}
+async function finishRound(){
   const cards=state.turnOrder.map(pid=>state.players.find(p=>p.id===pid));
   const minR=Math.min(...cards.map(p=>p.card.r));
   const losers=cards.filter(p=>p.card.r===minR);
