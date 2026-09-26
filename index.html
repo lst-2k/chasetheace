@@ -19,8 +19,17 @@ button.secondary{background:#3a3a3a;color:#fff}
 .row{display:flex;gap:8px;flex-wrap:wrap;justify-content:center}
 .player-list{list-style:none;padding:0;margin:8px 0}
 .player-list li{padding:6px 10px;background:rgba(255,255,255,.08);border-radius:8px;margin:4px 0;display:flex;justify-content:space-between}
-.playing-card{width:64px;height:92px;background:var(--card-bg);border-radius:8px;display:inline-flex;align-items:center;justify-content:center;font-size:1.6em;font-weight:bold;box-shadow:0 2px 6px rgba(0,0,0,.5);margin:4px}
+.playing-card{position:relative;width:64px;height:92px;background:var(--card-bg);border-radius:8px;box-shadow:0 2px 6px rgba(0,0,0,.5);margin:4px;overflow:hidden}
+.playing-card.mine{width:100px;height:144px;box-shadow:0 4px 12px rgba(0,0,0,.6)}
 .playing-card.back{background:repeating-linear-gradient(45deg,#7a1730,#7a1730 6px,#5c1024 6px,#5c1024 12px)}
+.corner{position:absolute;font-size:11px;line-height:1.05;font-weight:bold;text-align:center}
+.mine .corner{font-size:15px}
+.corner.tl{top:4px;left:4px}
+.corner.br{bottom:4px;right:4px;transform:rotate(180deg)}
+.pip{position:absolute;font-size:13px;line-height:1}
+.mine .pip{font-size:19px}
+.center-face{position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);font-size:26px}
+.mine .center-face{font-size:40px}
 .red{color:var(--card-red)} .black{color:var(--card-black)}
 .turn-banner{text-align:center;font-size:1.1em;color:var(--gold);margin:8px 0;font-weight:bold}
 .log{max-height:110px;overflow-y:auto;font-size:.85em;opacity:.85;background:rgba(0,0,0,.25);border-radius:8px;padding:8px;margin-top:10px}
@@ -112,7 +121,37 @@ function buildDeck(){
   return d;
 }
 function shuffle(a){ for(let i=a.length-1;i>0;i--){ const j=Math.floor(Math.random()*(i+1)); [a[i],a[j]]=[a[j],a[i]]; } return a; }
-function cardEl(card,hidden){ if(hidden||!card) return '<div class="playing-card back"></div>'; const su=SUITS[card.si]; return '<div class="playing-card '+su.c+'">'+RANKS[card.r]+su.s+'</div>'; }
+function pipPositions(n){
+  const rows=[14,32,50,68,86], L=28, R=72, M=50;
+  const pick=(idxs)=>idxs.map(i=>rows[i]);
+  let ys;
+  switch(n){
+    case 2: return [{x:M,y:rows[0]},{x:M,y:rows[4]}];
+    case 3: return [{x:M,y:rows[0]},{x:M,y:rows[2]},{x:M,y:rows[4]}];
+    case 4: ys=pick([0,4]); return ys.flatMap(y=>[{x:L,y},{x:R,y}]);
+    case 5: ys=pick([0,4]); return ys.flatMap(y=>[{x:L,y},{x:R,y}]).concat([{x:M,y:rows[2]}]);
+    case 6: ys=pick([0,2,4]); return ys.flatMap(y=>[{x:L,y},{x:R,y}]);
+    case 7: ys=pick([0,2,4]); return ys.flatMap(y=>[{x:L,y},{x:R,y}]).concat([{x:M,y:rows[1]}]);
+    case 8: ys=pick([0,1,3,4]); return ys.flatMap(y=>[{x:L,y},{x:R,y}]);
+    case 9: ys=pick([0,1,3,4]); return ys.flatMap(y=>[{x:L,y},{x:R,y}]).concat([{x:M,y:rows[2]}]);
+    case 10: ys=pick([0,1,2,3,4]); return ys.flatMap(y=>[{x:L,y},{x:R,y}]);
+    default: return [];
+  }
+}
+function cardEl(card,hidden,big){
+  const cls='playing-card'+(big?' mine':'')+((hidden||!card)?' back':'');
+  if(hidden||!card) return '<div class="'+cls+'"></div>';
+  const su=SUITS[card.si]; const rank=RANKS[card.r];
+  let inner='<div class="corner tl '+su.c+'">'+rank+'<br>'+su.s+'</div><div class="corner br '+su.c+'">'+rank+'<br>'+su.s+'</div>';
+  if(card.r===12){ inner+='<div class="center-face '+su.c+'">'+su.s+'</div>'; }
+  else if(card.r===11){ inner+='<div class="center-face '+su.c+'">♚</div>'; }
+  else {
+    pipPositions(card.r+2).forEach(p=>{
+      inner+='<div class="pip '+su.c+'" style="left:'+p.x+'%;top:'+p.y+'%;transform:translate(-50%,-50%)">'+su.s+'</div>';
+    });
+  }
+  return '<div class="'+cls+'">'+inner+'</div>';
+}
 function log(msg){ state.log=state.log||[]; state.log.push(msg); if(state.log.length>10) state.log=state.log.slice(-10); }
 function rid(len){ const c='ABCDEFGHJKLMNPQRSTUVWXYZ'; let s=''; for(let i=0;i<len;i++) s+=c[Math.floor(Math.random()*c.length)]; return s; }
 function esc(s){ return (s||'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
@@ -148,7 +187,7 @@ function render(){
   } else if(state.phase==='playing' || state.phase==='reveal'){
     playP.classList.remove('hidden');
     const me=state.players.find(p=>p.id===myId);
-    document.getElementById('myCard').innerHTML = me && !me.out ? cardEl(me.card,false) : '<i>spectating</i>';
+    document.getElementById('myCard').innerHTML = me && !me.out ? cardEl(me.card,false,true) : '<i>spectating</i>';
     let kp=document.getElementById('kingPrompt');
     if(!kp){ kp=document.createElement('div'); kp.id='kingPrompt'; kp.style.cssText='margin:8px auto;max-width:340px;background:rgba(232,193,90,.15);border:1px solid var(--gold);border-radius:8px;padding:8px;text-align:center;font-size:.9em'; document.getElementById('myCard').insertAdjacentElement('afterend',kp); }
     const kingHolder = state.turnOrder.map(id=>state.players.find(p=>p.id===id)).find(p=>p.card && p.card.r===11 && p.card.si===0);
@@ -185,7 +224,7 @@ function render(){
           note.textContent='🚫 No swap available — '+nextP.name+' holds the King of Spades.';
           ar.appendChild(note);
         } else {
-          const swapBtn=document.createElement('button'); swapBtn.textContent=isDealer?'Swap with deck':'Swap with next player'; swapBtn.onclick=()=>act('swap');
+          const swapBtn=document.createElement('button'); swapBtn.textContent=isDealer?'Swap with deck':('Swap with '+nextP.name); swapBtn.onclick=()=>act('swap');
           ar.appendChild(swapBtn);
         }
       }
