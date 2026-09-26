@@ -23,6 +23,8 @@ button.secondary{background:#3a3a3a;color:#fff}
 .playing-card.mine{width:100px;height:144px;box-shadow:0 4px 12px rgba(0,0,0,.6)}
 .playing-card.back{background:repeating-linear-gradient(45deg,#7a1730,#7a1730 6px,#5c1024 6px,#5c1024 12px)}
 .playing-card.losing{animation:losePulse 1.1s ease-in-out infinite}
+.card-pop{animation:cardPop .45s ease-out}
+@keyframes cardPop{0%{transform:scale(.55) rotate(-8deg);opacity:0}100%{transform:scale(1) rotate(0);opacity:1}}
 @keyframes losePulse{
   0%,100%{box-shadow:0 0 6px 2px rgba(220,40,40,.55),0 2px 6px rgba(0,0,0,.5)}
   50%{box-shadow:0 0 18px 8px rgba(220,40,40,.9),0 2px 6px rgba(0,0,0,.5)}
@@ -66,7 +68,9 @@ details p, details li{font-size:.92em;line-height:1.4}
 </div>
 
 <div id="screen-game" class="hidden">
-  <div class="card-box center">Table code: <span class="code-badge" id="codeShown"></span></div>
+  <div class="card-box center">Table code: <span class="code-badge" id="codeShown"></span>
+    <div><button id="leaveBtn" class="secondary" style="margin-top:8px;font-size:.8em;padding:6px 12px">Leave Table</button></div>
+  </div>
   <div id="lobbyPanel" class="card-box hidden">
     <p><b>Players seated:</b></p>
     <ul class="player-list" id="lobbyList"></ul>
@@ -97,6 +101,7 @@ details p, details li{font-size:.92em;line-height:1.4}
 </ul>
 </details>
 
+<canvas id="fxCanvas" style="position:fixed;inset:0;pointer-events:none;z-index:9999"></canvas>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-database-compat.js"></script>
 <script>
@@ -113,7 +118,40 @@ const firebaseConfig = {
 firebase.initializeApp(firebaseConfig);
 const rtdb = firebase.database();
 
-let audioCtx=null, lastPingKey=null;
+let audioCtx=null, lastPingKey=null, lastRevealFired=null, lastMyCardKey=undefined;
+let fxCtx=null;
+function initFx(){
+  const c=document.getElementById('fxCanvas'); if(!c) return null;
+  function resize(){ c.width=window.innerWidth; c.height=window.innerHeight; }
+  resize(); window.addEventListener('resize',resize);
+  return c.getContext('2d');
+}
+function fireConfetti(){
+  if(!fxCtx) return;
+  const canvas=document.getElementById('fxCanvas');
+  const colors=['#e8c15a','#ff5e5e','#5ec8ff','#7dff8a','#ff8ce0','#ffffff'];
+  const particles=[];
+  for(let i=0;i<140;i++){
+    particles.push({
+      x:canvas.width/2+(Math.random()-0.5)*80, y:canvas.height*0.4,
+      vx:(Math.random()-0.5)*11, vy:-(Math.random()*11+6), g:0.28+Math.random()*0.12,
+      size:4+Math.random()*4, color:colors[Math.floor(Math.random()*colors.length)],
+      rot:Math.random()*360, vr:(Math.random()-0.5)*14
+    });
+  }
+  const start=performance.now();
+  function frame(t){
+    fxCtx.clearRect(0,0,canvas.width,canvas.height);
+    particles.forEach(p=>{
+      p.vy+=p.g; p.x+=p.vx; p.y+=p.vy; p.rot+=p.vr;
+      fxCtx.save(); fxCtx.translate(p.x,p.y); fxCtx.rotate(p.rot*Math.PI/180);
+      fxCtx.fillStyle=p.color; fxCtx.fillRect(-p.size/2,-p.size/2,p.size,p.size*0.6);
+      fxCtx.restore();
+    });
+    if(t-start<2600) requestAnimationFrame(frame); else fxCtx.clearRect(0,0,canvas.width,canvas.height);
+  }
+  requestAnimationFrame(frame);
+}
 function ensureAudio(){ try{ if(!audioCtx) audioCtx=new (window.AudioContext||window.webkitAudioContext)(); if(audioCtx.state==='suspended') audioCtx.resume(); }catch(e){} }
 function tone(freq,duration,type,vol){
   if(!audioCtx) return;
@@ -142,6 +180,8 @@ const RANKS=['2','3','4','5','6','7','8','9','10','J','Q','K','A'];
 const SUITS=[{s:'♠',c:'black'},{s:'♥',c:'red'},{s:'♦',c:'red'},{s:'♣',c:'black'}];
 
 function uid(){ try{ let v=localStorage.getItem('cta_id'); if(v) return v; v='p_'+Math.random().toString(36).slice(2,10); localStorage.setItem('cta_id',v); return v; }catch(e){ return 'p_'+Math.random().toString(36).slice(2,10); } }
+function saveSession(){ try{ localStorage.setItem('cta_room',roomCode); localStorage.setItem('cta_name',myName); }catch(e){} }
+function clearSession(){ try{ localStorage.removeItem('cta_room'); }catch(e){} }
 function buildDeck(){
   let d=[];
   SUITS.forEach((su,si)=>{ for(let r=0;r<9;r++) d.push({r,si}); }); // 2-10, all suits
@@ -214,8 +254,16 @@ function render(){
   } else if(state.phase==='playing' || state.phase==='awaiting_reveal' || state.phase==='revealed'){
     playP.classList.remove('hidden');
     const me=state.players.find(p=>p.id===myId);
-    document.getElementById('myCard').innerHTML = me && !me.out ? cardEl(me.card,false,true) : '<i>spectating</i>';
-    let kp=document.getElementById('kingPrompt');
+    const mc=document.getElementById('myCard');
+    const meCardKey = me && me.card ? (me.card.r+'-'+me.card.si) : null;
+    if(!me || me.out){ mc.innerHTML='<i>spectating</i>'; lastMyCardKey=meCardKey; }
+    else if(meCardKey!==lastMyCardKey){
+      lastMyCardKey=meCardKey;
+      mc.innerHTML=cardEl(null,true,true);
+      setTimeout(()=>{ mc.innerHTML=cardEl(me.card,false,true); mc.classList.add('card-pop'); setTimeout(()=>mc.classList.remove('card-pop'),450); },500);
+    } else {
+      mc.innerHTML=cardEl(me.card,false,true);
+    }    let kp=document.getElementById('kingPrompt');
     if(!kp){ kp=document.createElement('div'); kp.id='kingPrompt'; kp.style.cssText='margin:8px auto;max-width:340px;background:rgba(232,193,90,.15);border:1px solid var(--gold);border-radius:8px;padding:8px;text-align:center;font-size:.9em'; document.getElementById('myCard').insertAdjacentElement('afterend',kp); }
     const kingHolder = state.turnOrder.map(id=>state.players.find(p=>p.id===id)).find(p=>p.card && p.card.r===11 && p.card.si===0);
     if(me && !me.out && me.card && me.card.r===11 && me.card.si===0){
@@ -264,6 +312,8 @@ function render(){
       if(isHost()){ const btn=document.createElement('button'); btn.textContent='Reveal Cards'; btn.onclick=doReveal; rc.appendChild(btn); }
     } else {
       banner.textContent='Cards revealed!';
+      const revealKey=(state.roundNum||0)+'-revealed';
+      if(revealKey!==lastRevealFired){ lastRevealFired=revealKey; fireConfetti(); }
       if(isHost()){ const btn=document.createElement('button'); btn.textContent='Continue'; btn.onclick=finishRound; rc.appendChild(btn); }
       else { const note=document.createElement('div'); note.style.opacity='.8'; note.textContent='Waiting for host to continue...'; rc.appendChild(note); }
     }
@@ -340,6 +390,7 @@ async function createRoom(){
   state={ code:roomCode, phase:'lobby', players:[{id:myId,name:myName,lives:3,card:null,out:false}], turnOrder:[], turnIndex:0, deck:[], roundNum:0, log:['Table created.'] };
   gameRef=rtdb.ref('games/'+roomCode);
   await gameRef.set(state);
+  saveSession();
   subscribe();
 }
 async function joinRoom(){
@@ -360,12 +411,36 @@ async function joinRoom(){
   roomCode=code; state=s;
   gameRef=rtdb.ref('games/'+roomCode);
   await gameRef.set(state);
+  saveSession();
   subscribe();
 }
 
 myId=uid();
+fxCtx=initFx();
 document.getElementById('createBtn').onclick=()=>{ ensureAudio(); createRoom(); };
 document.getElementById('joinBtn').onclick=()=>{ ensureAudio(); joinRoom(); };
+document.getElementById('leaveBtn').onclick=()=>{
+  if(gameRef) try{ gameRef.off(); }catch(e){}
+  clearSession(); roomCode=null; state=null; gameRef=null;
+  document.getElementById('screen-game').classList.add('hidden');
+  document.getElementById('screen-join').classList.remove('hidden');
+};
+document.addEventListener('visibilitychange',()=>{ if(document.visibilityState==='visible') ensureAudio(); });
+window.addEventListener('focus',ensureAudio);
+window.addEventListener('pageshow',ensureAudio);
+(async function tryAutoRejoin(){
+  let savedRoom, savedName;
+  try{ savedRoom=localStorage.getItem('cta_room'); savedName=localStorage.getItem('cta_name'); }catch(e){ return; }
+  if(!savedRoom) return;
+  try{
+    const snap=await rtdb.ref('games/'+savedRoom).once('value');
+    const s=snap.val();
+    if(!s || !s.players.find(p=>p.id===myId)){ clearSession(); return; }
+    roomCode=savedRoom; myName=savedName||''; state=s;
+    gameRef=rtdb.ref('games/'+roomCode);
+    subscribe();
+  }catch(e){}
+})();
 </script>
 </body>
 </html>
