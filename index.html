@@ -35,6 +35,15 @@ button.secondary{background:#3a3a3a;color:#fff}
 }
 .float-emoji{position:fixed;font-size:2.2em;pointer-events:none;z-index:9998;animation:emojiFloat 1.6s ease-out forwards}
 @keyframes emojiFloat{0%{transform:translateY(0) scale(.6);opacity:0}15%{opacity:1;transform:translateY(-14px) scale(1.15)}100%{transform:translateY(-170px) scale(1);opacity:0}}
+#loseShowcase{position:fixed;top:50%;left:50%;z-index:9996;display:flex;gap:16px;align-items:center;justify-content:center;pointer-events:none;animation:loseShowcase 2.8s ease-in forwards}
+.lose-item{display:flex;flex-direction:column;align-items:center}
+.lose-name{color:#fff;background:rgba(180,20,20,.9);padding:4px 16px;border-radius:8px;font-weight:bold;font-size:1.3em;margin-bottom:8px;box-shadow:0 2px 10px rgba(0,0,0,.6);white-space:nowrap}
+@keyframes loseShowcase{
+  0%{transform:translate(-50%,-50%) scale(.3);opacity:0}
+  15%{transform:translate(-50%,-50%) scale(1.35);opacity:1}
+  55%{transform:translate(-50%,-50%) scale(1.35);opacity:1}
+  100%{transform:translate(-50%,140vh) scale(1.15);opacity:0}
+}
 #elimOverlay{position:fixed;inset:0;background:rgba(0,0,0,.8);color:#fff;display:flex;flex-direction:column;align-items:center;justify-content:center;z-index:9997;text-align:center;padding:20px;opacity:1;transition:opacity 1.6s ease}
 #elimOverlay.fade{opacity:0}
 #elimOverlay .skull{font-size:3em;margin-bottom:6px}
@@ -141,7 +150,7 @@ const firebaseConfig = {
 firebase.initializeApp(firebaseConfig);
 const rtdb = firebase.database();
 
-let audioCtx=null, lastPingKey=null, lastRevealFired=null, lastMyCardKey=undefined, lastLogLen=null, lastElimShown=null, lastLives={}, lastReactionShown=null, reactionBarTimer=null;
+let audioCtx=null, lastPingKey=null, lastRevealFired=null, lastMyCardKey=undefined, lastLogLen=null, lastElimShown=null, lastLives={}, lastReactionShown=null, reactionBarTimer=null, revealReadyKey=null;
 function floodEmojiScreen(emoji){
   for(let i=0;i<15;i++){
     setTimeout(()=>{
@@ -166,7 +175,13 @@ async function sendReaction(emoji){
   state.reaction={emoji};
   await save();
 }
-function playPop(){
+function showLosingShowcase(losers){
+  const old=document.getElementById('loseShowcase'); if(old) old.remove();
+  const wrap=document.createElement('div'); wrap.id='loseShowcase';
+  wrap.innerHTML=losers.map(p=>'<div class="lose-item"><div class="lose-name">'+esc(p.name)+'</div>'+cardEl(p.card,false,true)+'</div>').join('');
+  document.body.appendChild(wrap);
+  setTimeout(()=>wrap.remove(),2900);
+}
   ensureAudio(); if(!audioCtx) return;
   const osc=audioCtx.createOscillator(), gain=audioCtx.createGain();
   osc.type='sine';
@@ -435,9 +450,16 @@ function render(){
     } else {
       banner.textContent='Cards revealed!';
       const revealKey=(state.roundNum||0)+'-revealed';
-      if(revealKey!==lastRevealFired){ lastRevealFired=revealKey; fireConfetti(); }
-      if(isHost()){ const btn=document.createElement('button'); btn.textContent='Continue'; btn.onclick=finishRound; rc.appendChild(btn); }
-      else { const note=document.createElement('div'); note.style.opacity='.8'; note.textContent='Waiting for host to continue...'; rc.appendChild(note); }
+      if(revealKey!==lastRevealFired){
+        lastRevealFired=revealKey;
+        const losers=state.turnOrder.map(id=>state.players.find(p=>p.id===id)).filter(p=>cardValue(p.card)===minR);
+        setTimeout(()=>{ revealReadyKey=revealKey; fireConfetti(); showLosingShowcase(losers); render(); }, 5000);
+      }
+      const ready = revealReadyKey===revealKey;
+      if(isHost()){
+        const btn=document.createElement('button'); btn.textContent= ready? 'Continue' : 'Revealing...'; btn.disabled=!ready; btn.onclick=finishRound; rc.appendChild(btn);
+      }
+      else { const note=document.createElement('div'); note.style.opacity='.8'; note.textContent= ready? 'Waiting for host to continue...' : 'Take a look at everyone\'s cards...'; rc.appendChild(note); }
     }
     const lb=document.getElementById('logBox'); lb.innerHTML=(state.log||[]).map(m=>'<div>'+esc(m)+'</div>').join('');
     lb.scrollTop=lb.scrollHeight;
@@ -504,7 +526,7 @@ async function finishRound(){
 }
 
 function subscribe(){
-  lastLogLen=null; lastElimShown=null; lastLives={}; lastReactionShown=null;
+  lastLogLen=null; lastElimShown=null; lastLives={}; lastReactionShown=null; revealReadyKey=null;
   gameRef=rtdb.ref('games/'+roomCode);
   gameRef.on('value', snap=>{ const v=snap.val(); if(v){ state=v; render(); } });
 }
