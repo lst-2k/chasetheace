@@ -182,6 +182,7 @@ function showLosingShowcase(losers){
   document.body.appendChild(wrap);
   setTimeout(()=>wrap.remove(),2900);
 }
+function playPop(){
   ensureAudio(); if(!audioCtx) return;
   const osc=audioCtx.createOscillator(), gain=audioCtx.createGain();
   osc.type='sine';
