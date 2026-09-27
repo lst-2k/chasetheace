@@ -359,13 +359,10 @@ function render(){
     const active=state.players.filter(p=>!p.out);
     let upcomingDealer=null;
     if(active.length>0){
-      if(!state.roundNum){ upcomingDealer=state.players[0]; }
-      else {
-        const order=active.map(p=>p.id);
-        const rot=state.roundNum%order.length;
-        const turnOrder=order.slice(rot).concat(order.slice(0,rot));
-        upcomingDealer=state.players.find(p=>p.id===turnOrder[turnOrder.length-1]);
-      }
+      const order=active.map(p=>p.id);
+      const rot=((state.roundNum||0)+1)%order.length;
+      const turnOrder=order.slice(rot).concat(order.slice(0,rot));
+      upcomingDealer=state.players.find(p=>p.id===turnOrder[turnOrder.length-1]);
     }
     const isDealerTurn = upcomingDealer && upcomingDealer.id===myId;
     if(isDealerTurn){
@@ -461,7 +458,7 @@ async function startRound(){
   const active=state.players.filter(p=>!p.out);
   const deck=shuffle(buildDeck());
   const order=active.map(p=>p.id);
-  const rot=(state.roundNum||0)%order.length;
+  const rot=((state.roundNum||0)+1)%order.length;
   const turnOrder=order.slice(rot).concat(order.slice(0,rot));
   state.players.forEach(p=>{ p.card=null; });
   turnOrder.forEach(pid=>{ const p=state.players.find(x=>x.id===pid); p.card=deck.pop(); });
