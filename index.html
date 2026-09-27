@@ -182,6 +182,28 @@ function showLosingShowcase(losers){
   document.body.appendChild(wrap);
   setTimeout(()=>wrap.remove(),2900);
 }
+function renderTableDecor(){
+  const spots=[
+    {top:'-46px', left:'-32px', rot:-18},
+    {top:'-46px', right:'-32px', rot:18},
+    {bottom:'-46px', left:'-32px', rot:20},
+    {bottom:'-46px', right:'-32px', rot:-20},
+    {top:'35%', left:'-32px', rot:-8},
+    {top:'55%', right:'-32px', rot:8},
+    {bottom:'-46px', left:'38%', rot:5},
+    {top:'-46px', right:'38%', rot:-5}
+  ];
+  spots.forEach(pos=>{
+    const r=Math.floor(Math.random()*13), si=Math.floor(Math.random()*4);
+    const div=document.createElement('div');
+    div.style.position='fixed'; div.style.zIndex='-1'; div.style.pointerEvents='none';
+    div.style.opacity='0.55'; div.style.filter='saturate(.85)';
+    Object.keys(pos).forEach(k=>{ if(k!=='rot') div.style[k]=pos[k]; });
+    div.style.transform='rotate('+pos.rot+'deg)';
+    div.innerHTML=cardEl({r,si},false,false);
+    document.body.appendChild(div);
+  });
+}
 function playPop(){
   ensureAudio(); if(!audioCtx) return;
   const osc=audioCtx.createOscillator(), gain=audioCtx.createGain();
@@ -569,6 +591,7 @@ async function joinRoom(){
 }
 
 myId=uid();
+renderTableDecor();
 fxCtx=initFx();
 document.querySelectorAll('.react-btn').forEach(b=>{
   b.onclick=()=>{ sendReaction(b.dataset.e); document.getElementById('reactionBar').classList.add('hidden'); };
