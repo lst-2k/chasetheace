@@ -16,6 +16,7 @@ input{width:100%;padding:10px;border-radius:8px;border:none;font-size:1em;margin
 button{background:var(--gold);color:#3a2b00;border:none;border-radius:8px;padding:10px 16px;font-size:1em;font-weight:bold;cursor:pointer;margin:4px 4px 4px 0}
 button:disabled{opacity:.4;cursor:default}
 button.secondary{background:#3a3a3a;color:#fff}
+.react-btn{background:rgba(255,255,255,.12);font-size:1.5em;padding:6px 10px;border-radius:10px}
 .row{display:flex;gap:8px;flex-wrap:wrap;justify-content:center}
 .player-list{list-style:none;padding:0;margin:8px 0}
 .player-list li{padding:6px 10px;background:rgba(255,255,255,.08);border-radius:8px;margin:4px 0;display:flex;justify-content:space-between}
@@ -94,6 +95,13 @@ details p, details li{font-size:.92em;line-height:1.4}
     <div class="turn-banner" id="turnBanner"></div>
     <div class="center"><p>Your card:</p><div id="myCard"></div></div>
     <div class="row" id="actionRow"></div>
+    <div class="row hidden" id="reactionBar">
+      <button class="react-btn" data-e="❤️">❤️</button>
+      <button class="react-btn" data-e="👍">👍</button>
+      <button class="react-btn" data-e="😄">😄</button>
+      <button class="react-btn" data-e="😢">😢</button>
+      <button class="react-btn" data-e="😞">😞</button>
+    </div>
     <div class="table-strip" id="tableStrip"></div>
     <div class="row" id="revealControls"></div>
     <div class="log" id="logBox"></div>
@@ -109,8 +117,10 @@ details p, details li{font-size:.92em;line-height:1.4}
 <li>In turn order, you either <b>Keep</b> your card or <b>Swap</b> it with the next player.</li>
 <li>A player holding a <b>King</b> is protected — you can't force a swap onto them.</li>
 <li>The last player each round (the dealer) swaps with the deck instead of a person.</li>
-<li>After everyone has acted, cards are revealed. Lowest card loses a life (2 is lowest, Ace is highest).</li>
+<li>After everyone has acted, cards are revealed. Lowest card loses a life — 2 is the lowest of the normal cards, but the <b>Ace is worth just 1 and is the lowest card in the whole deck</b>. You really don't want it!</li>
+<li>The <b>King is the highest card</b> in the deck and can't be swapped onto you.</li>
 <li>Lose all 3 lives and you're out. Last player standing wins the table.</li>
+<li>After you Keep or Swap, a row of emoji appears — tap one to flood everyone's screen with it for a couple of seconds. Use it to celebrate, sulk, or bluff — nobody can tell if you're faking it! 😆</li>
 </ul>
 </details>
 
@@ -131,7 +141,31 @@ const firebaseConfig = {
 firebase.initializeApp(firebaseConfig);
 const rtdb = firebase.database();
 
-let audioCtx=null, lastPingKey=null, lastRevealFired=null, lastMyCardKey=undefined, lastLogLen=null, lastElimShown=null, lastLives={};
+let audioCtx=null, lastPingKey=null, lastRevealFired=null, lastMyCardKey=undefined, lastLogLen=null, lastElimShown=null, lastLives={}, lastReactionShown=null, reactionBarTimer=null;
+function floodEmojiScreen(emoji){
+  for(let i=0;i<15;i++){
+    setTimeout(()=>{
+      const el=document.createElement('div');
+      el.className='float-emoji'; el.textContent=emoji;
+      el.style.left=(8+Math.random()*84)+'%';
+      el.style.top=(15+Math.random()*60)+'%';
+      el.style.fontSize=(1.6+Math.random()*1.4)+'em';
+      document.body.appendChild(el);
+      setTimeout(()=>el.remove(),1700);
+    }, i*30);
+  }
+}
+function showReactionBar(){
+  const bar=document.getElementById('reactionBar');
+  bar.classList.remove('hidden');
+  clearTimeout(reactionBarTimer);
+  reactionBarTimer=setTimeout(()=>bar.classList.add('hidden'),6000);
+}
+async function sendReaction(emoji){
+  state.reactionEventId=(state.reactionEventId||0)+1;
+  state.reaction={emoji};
+  await save();
+}
 function playPop(){
   ensureAudio(); if(!audioCtx) return;
   const osc=audioCtx.createOscillator(), gain=audioCtx.createGain();
@@ -279,6 +313,7 @@ function cardEl(card,hidden,big,losing){
 function log(msg){ state.log=state.log||[]; state.log.push(msg); if(state.log.length>10) state.log=state.log.slice(-10); }
 function rid(len){ const c='ABCDEFGHJKLMNPQRSTUVWXYZ'; let s=''; for(let i=0;i<len;i++) s+=c[Math.floor(Math.random()*c.length)]; return s; }
 function esc(s){ return (s||'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+function cardValue(card){ if(card.r===11) return 100; if(card.r===12) return -1; return card.r; }
 function isHost(){ return state && state.players[0] && state.players[0].id===myId; }
 async function save(){ await gameRef.set(state); }
 
@@ -299,6 +334,13 @@ function render(){
     if(lastLives[p.id]!==undefined && p.lives<lastLives[p.id]) triggerHeartBurst(p.id);
     lastLives[p.id]=p.lives;
   });
+  if(state.reactionEventId){
+    if(lastReactionShown===null){ lastReactionShown=state.reactionEventId; }
+    else if(state.reactionEventId!==lastReactionShown){
+      lastReactionShown=state.reactionEventId;
+      if(state.reaction && state.reaction.emoji) floodEmojiScreen(state.reaction.emoji);
+    }
+  }
   document.getElementById('screen-join').classList.add('hidden');
   document.getElementById('screen-game').classList.remove('hidden');
   document.getElementById('codeShown').textContent=roomCode;
@@ -358,11 +400,11 @@ function render(){
     } else { kp.classList.add('hidden'); }
     const strip=document.getElementById('tableStrip'); strip.innerHTML='';
     const revealed = state.phase==='revealed';
-    const minR = revealed ? Math.min(...state.turnOrder.map(id=>state.players.find(p=>p.id===id).card.r)) : null;
+    const minR = revealed ? Math.min(...state.turnOrder.map(id=>cardValue(state.players.find(p=>p.id===id).card))) : null;
     state.turnOrder.forEach(pid=>{
       const p=state.players.find(x=>x.id===pid);
       const seat=document.createElement('div'); seat.className='seat';
-      const losing = revealed && p.card.r===minR;
+      const losing = revealed && cardValue(p.card)===minR;
       seat.innerHTML = cardEl(p.card, !revealed, false, losing) + '<div class="name">'+esc(p.name)+(pid===myId?' (you)':'')+'</div><div class="lives" id="hearts-'+pid+'">'+('♥'.repeat(Math.max(p.lives,0)))+'</div>';
       strip.appendChild(seat);
     });
@@ -377,7 +419,7 @@ function render(){
       const turnKey=(state.roundNum||0)+'-'+state.turnIndex;
       if(turnKey!==lastPingKey){ lastPingKey=turnKey; if(curId===myId) playPing(); }
       if(curId===myId){
-        const keepBtn=document.createElement('button'); keepBtn.textContent='Keep'; keepBtn.onclick=()=>{ playBip(); act('keep'); };
+        const keepBtn=document.createElement('button'); keepBtn.textContent='Keep'; keepBtn.onclick=()=>{ playBip(); act('keep'); showReactionBar(); };
         ar.appendChild(keepBtn);
         const nextP = !isDealer ? state.players.find(p=>p.id===state.turnOrder[state.turnIndex+1]) : null;
         const nextIsKing = nextP && nextP.card.r===11 && nextP.card.si===0;
@@ -386,7 +428,7 @@ function render(){
           note.textContent='🚫 No swap available — '+nextP.name+' holds the King of Spades.';
           ar.appendChild(note);
         } else {
-          const swapBtn=document.createElement('button'); swapBtn.textContent=isDealer?'Swap with deck':('Swap with '+nextP.name); swapBtn.onclick=()=>{ playWhoosh(); act('swap'); };
+          const swapBtn=document.createElement('button'); swapBtn.textContent=isDealer?'Swap with deck':('Swap with '+nextP.name); swapBtn.onclick=()=>{ playWhoosh(); act('swap'); showReactionBar(); };
           ar.appendChild(swapBtn);
         }
       }
@@ -453,8 +495,8 @@ async function doReveal(){
 }
 async function finishRound(){
   const cards=state.turnOrder.map(pid=>state.players.find(p=>p.id===pid));
-  const minR=Math.min(...cards.map(p=>p.card.r));
-  const losers=cards.filter(p=>p.card.r===minR);
+  const minR=Math.min(...cards.map(p=>cardValue(p.card)));
+  const losers=cards.filter(p=>cardValue(p.card)===minR);
   const eliminatedNames=[];
   losers.forEach(p=>{ p.lives--; if(p.lives<=0){ p.out=true; eliminatedNames.push(p.name); log(p.name+' is out of lives — eliminated!'); } else { log(p.name+' had the lowest card and lost a life.'); } });
   state.lastEliminated=eliminatedNames;
@@ -465,7 +507,7 @@ async function finishRound(){
 }
 
 function subscribe(){
-  lastLogLen=null; lastElimShown=null; lastLives={};
+  lastLogLen=null; lastElimShown=null; lastLives={}; lastReactionShown=null;
   gameRef=rtdb.ref('games/'+roomCode);
   gameRef.on('value', snap=>{ const v=snap.val(); if(v){ state=v; render(); } });
 }
@@ -508,6 +550,9 @@ async function joinRoom(){
 
 myId=uid();
 fxCtx=initFx();
+document.querySelectorAll('.react-btn').forEach(b=>{
+  b.onclick=()=>{ sendReaction(b.dataset.e); document.getElementById('reactionBar').classList.add('hidden'); };
+});
 document.getElementById('createBtn').onclick=()=>{ ensureAudio(); createRoom(); };
 document.getElementById('joinBtn').onclick=()=>{ ensureAudio(); joinRoom(); };
 document.getElementById('leaveBtn').onclick=()=>{
