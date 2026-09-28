@@ -7,7 +7,7 @@
 <style>
 :root{--felt:#0b5d33;--felt2:#0e7a41;--gold:#e8c15a;--card-bg:#fffdf7;--card-red:#b8283a;--card-black:#1a1a1a;--panel:rgba(0,0,0,.35)}
 *{box-sizing:border-box}
-html,body{height:100%;margin:0;font-family:Georgia,'Times New Roman',serif;color:#fff}
+html,body{height:100%;margin:0;font-family:Georgia,'Times New Roman',serif;color:#fff;overflow-x:hidden}
 body{background:radial-gradient(ellipse at center,var(--felt2) 0%,var(--felt) 70%);min-height:100%;padding:16px}
 h1{text-align:center;color:var(--gold);letter-spacing:2px;font-size:1.6em;margin:8px 0 4px;text-shadow:0 2px 4px rgba(0,0,0,.5)}
 .sub{text-align:center;opacity:.8;margin-bottom:16px;font-size:.9em}
@@ -48,6 +48,13 @@ button.secondary{background:#3a3a3a;color:#fff}
 #elimOverlay.fade{opacity:0}
 #elimOverlay .skull{font-size:3em;margin-bottom:6px}
 #elimOverlay .name{color:var(--gold);font-weight:bold;font-size:1.4em;margin-top:4px}
+#winOverlay{position:fixed;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;z-index:9995;pointer-events:none;text-align:center;background:radial-gradient(circle,rgba(0,0,0,.3),rgba(0,0,0,.8));opacity:1;transition:opacity 1.6s ease}
+#winOverlay.fade{opacity:0}
+#winOverlay .trophy{font-size:7.5em;line-height:1;filter:drop-shadow(0 0 28px gold);animation:trophyIn 1.2s cubic-bezier(.2,1.6,.4,1) both,trophyBob 2s ease-in-out 1.2s infinite}
+#winOverlay .wtitle{color:var(--gold);font-size:2.2em;font-weight:bold;letter-spacing:4px;margin-top:10px;text-shadow:0 0 18px rgba(232,193,90,.9);animation:trophyIn 1s ease-out .4s both}
+#winOverlay .wname{color:#fff;font-size:1.6em;margin-top:6px;text-shadow:0 2px 10px #000;animation:trophyIn 1s ease-out .7s both}
+@keyframes trophyIn{0%{transform:scale(0) rotate(-25deg);opacity:0}100%{transform:scale(1) rotate(0);opacity:1}}
+@keyframes trophyBob{0%,100%{transform:translateY(0) scale(1)}50%{transform:translateY(-14px) scale(1.06)}}
 @keyframes losePulse{
   0%,100%{box-shadow:0 0 6px 2px rgba(220,40,40,.55),0 2px 6px rgba(0,0,0,.5)}
   50%{box-shadow:0 0 18px 8px rgba(220,40,40,.9),0 2px 6px rgba(0,0,0,.5)}
@@ -150,7 +157,7 @@ const firebaseConfig = {
 firebase.initializeApp(firebaseConfig);
 const rtdb = firebase.database();
 
-let audioCtx=null, lastPingKey=null, lastRevealFired=null, lastMyCardKey=undefined, lastLogLen=null, lastElimShown=null, lastLives={}, lastReactionShown=null, reactionBarTimer=null, revealReadyKey=null;
+let audioCtx=null, lastPingKey=null, lastRevealFired=null, lastMyCardKey=undefined, lastLogLen=null, lastElimShown=null, lastLives={}, lastReactionShown=null, reactionBarTimer=null, revealReadyKey=null, swapAnimating=false, lastSwapShown=null, lastMyCard=null, lastDealRound=null, lastWinKey=null;
 function floodEmojiScreen(emoji){
   for(let i=0;i<15;i++){
     setTimeout(()=>{
@@ -174,6 +181,137 @@ async function sendReaction(emoji){
   state.reactionEventId=(state.reactionEventId||0)+1;
   state.reaction={emoji};
   await save();
+}
+async function runSwapAnimation(oldCard,newCard,dir){
+  swapAnimating=true;
+  const mc=document.getElementById('myCard');
+  const off=dir*(window.innerWidth+200);
+  const wait=ms=>new Promise(r=>setTimeout(r,ms));
+  const run=(el,frames,ms,easing)=>el.animate(frames,{duration:ms,fill:'forwards',easing:easing||'ease-in-out'}).finished;
+  try{
+    mc.innerHTML=cardEl(oldCard,false,true);
+    let el=mc.firstElementChild; el.style.zIndex='50';
+    await run(el,[{transform:'scale(1)'},{transform:'scale(1.35)'}],500,'ease-out');
+    if(dir===1) playWhoosh();
+    await run(el,[{transform:'scale(1.35) translateX(0)'},{transform:'scale(1.35) translateX('+off+'px)'}],750,'ease-in');
+    mc.innerHTML=cardEl(newCard,true,true);
+    el=mc.firstElementChild; el.style.zIndex='50';
+    await run(el,[{transform:'translateX('+off+'px)'},{transform:'translateX(0)'}],750,'ease-out');
+    await run(el,[{transform:'scale(1)'},{transform:'scale(1.35)'}],400,'ease-out');
+    tone(650,0.07,'triangle',0.12);
+    await run(el,[{transform:'scale(1.35) perspective(700px) rotateY(0deg)'},{transform:'scale(1.35) perspective(700px) rotateY(90deg)'}],500,'ease-in');
+    mc.innerHTML=cardEl(newCard,false,true);
+    el=mc.firstElementChild; el.style.zIndex='50';
+    await run(el,[{transform:'scale(1.35) perspective(700px) rotateY(-90deg)'},{transform:'scale(1.35) perspective(700px) rotateY(0deg)'}],500,'ease-out');
+    await wait(2000);
+    await run(el,[{transform:'scale(1.35)'},{transform:'scale(1)'}],450,'ease-in-out');
+  }catch(e){}
+  swapAnimating=false;
+  render();
+}
+async function runDealAnimation(card){
+  swapAnimating=true;
+  const mc=document.getElementById('myCard');
+  const fromTop=-(window.innerHeight+200);
+  const wait=ms=>new Promise(r=>setTimeout(r,ms));
+  const run=(el,frames,ms,easing)=>el.animate(frames,{duration:ms,fill:'forwards',easing:easing||'ease-in-out'}).finished;
+  try{
+    mc.innerHTML=cardEl(card,true,true);
+    let el=mc.firstElementChild; el.style.zIndex='50';
+    await run(el,[{transform:'translateY('+fromTop+'px)'},{transform:'translateY(0)'}],800,'ease-out');
+    await run(el,[{transform:'scale(1)'},{transform:'scale(1.35)'}],400,'ease-out');
+    tone(650,0.07,'triangle',0.12);
+    await run(el,[{transform:'scale(1.35) perspective(700px) rotateY(0deg)'},{transform:'scale(1.35) perspective(700px) rotateY(90deg)'}],500,'ease-in');
+    mc.innerHTML=cardEl(card,false,true);
+    el=mc.firstElementChild; el.style.zIndex='50';
+    await run(el,[{transform:'scale(1.35) perspective(700px) rotateY(-90deg)'},{transform:'scale(1.35) perspective(700px) rotateY(0deg)'}],500,'ease-out');
+    await wait(1500);
+    await run(el,[{transform:'scale(1.35)'},{transform:'scale(1)'}],450,'ease-in-out');
+  }catch(e){}
+  swapAnimating=false;
+  render();
+}
+function playFanfare(){
+  ensureAudio(); if(!audioCtx) return;
+  const ctx=audioCtx, now=ctx.currentTime;
+  const filt=ctx.createBiquadFilter(); filt.type='lowpass'; filt.frequency.value=2600;
+  const master=ctx.createGain(); master.gain.value=0.22;
+  filt.connect(master); master.connect(ctx.destination);
+  const note=(f,t,d,type,vol)=>{
+    const o=ctx.createOscillator(), g=ctx.createGain();
+    o.type=type||'sawtooth'; o.frequency.value=f;
+    g.gain.setValueAtTime(0.0001,now+t);
+    g.gain.exponentialRampToValueAtTime(vol||0.6,now+t+0.03);
+    g.gain.exponentialRampToValueAtTime(0.0001,now+t+d);
+    o.connect(g); g.connect(filt); o.start(now+t); o.stop(now+t+d+0.05);
+  };
+  [0,0.2,0.4].forEach(t=>note(523.25,t,0.16));
+  note(698.46,0.6,0.55);
+  note(659.25,1.2,0.16); note(698.46,1.4,0.16); note(783.99,1.6,0.16);
+  [523.25,659.25,783.99,1046.5].forEach(f=>note(f,1.85,1.8,'sawtooth',0.5));
+  note(261.63,1.85,1.8,'triangle',0.7);
+}
+function playBoom(){
+  ensureAudio(); if(!audioCtx) return;
+  const o=audioCtx.createOscillator(), g=audioCtx.createGain(), now=audioCtx.currentTime;
+  o.type='sine'; o.frequency.setValueAtTime(150,now); o.frequency.exponentialRampToValueAtTime(40,now+0.3);
+  g.gain.setValueAtTime(0.18,now); g.gain.exponentialRampToValueAtTime(0.001,now+0.35);
+  o.connect(g); g.connect(audioCtx.destination); o.start(now); o.stop(now+0.4);
+}
+function celebrateWinner(name,isMe){
+  const old=document.getElementById('winOverlay'); if(old) old.remove();
+  const ov=document.createElement('div'); ov.id='winOverlay';
+  ov.innerHTML='<div class="trophy">🏆</div><div class="wtitle">'+(isMe?'YOU WIN!':'WINNER!')+'</div><div class="wname">'+(isMe?'Champion of the table':esc(name))+'</div>';
+  document.body.appendChild(ov);
+  playFanfare();
+  setTimeout(()=>{ ov.classList.add('fade'); setTimeout(()=>ov.remove(),1700); },10000);
+  if(!fxCtx) return;
+  const canvas=document.getElementById('fxCanvas');
+  const parts=[];
+  const confettiColors=['#e8c15a','#ff5e5e','#5ec8ff','#7dff8a','#ff8ce0','#ffffff'];
+  function firework(){
+    const cx=canvas.width*(0.15+Math.random()*0.7), cy=canvas.height*(0.12+Math.random()*0.4);
+    const color='hsl('+Math.floor(Math.random()*360)+',100%,60%)';
+    for(let i=0;i<70;i++){
+      const a=Math.random()*Math.PI*2, s=2+Math.random()*5;
+      parts.push({k:'s',x:cx,y:cy,vx:Math.cos(a)*s,vy:Math.sin(a)*s,g:0.05,life:0,max:55+Math.random()*35,color:i%9===0?'#ffffff':color,size:2+Math.random()*2});
+    }
+    playBoom();
+  }
+  function cannon(side){
+    for(let i=0;i<60;i++){
+      parts.push({k:'c',x:side===0?0:canvas.width,y:canvas.height*0.9,vx:(side===0?1:-1)*(4+Math.random()*9),vy:-(9+Math.random()*11),g:0.3,
+        color:confettiColors[Math.floor(Math.random()*confettiColors.length)],size:5+Math.random()*4,rot:Math.random()*360,vr:(Math.random()-0.5)*16});
+    }
+  }
+  cannon(0); cannon(1); firework();
+  const start=performance.now(); let nextBurst=500;
+  function frame(t){
+    const el=t-start, w=canvas.width, h=canvas.height;
+    fxCtx.globalCompositeOperation='destination-out'; fxCtx.fillStyle='rgba(0,0,0,0.3)'; fxCtx.fillRect(0,0,w,h);
+    fxCtx.globalCompositeOperation='source-over';
+    if(el<9000 && el>=nextBurst){
+      firework(); nextBurst=el+300+Math.random()*450;
+      if(Math.random()<0.3) cannon(Math.random()<0.5?0:1);
+    }
+    for(let i=parts.length-1;i>=0;i--){
+      const p=parts[i];
+      if(p.k==='s'){
+        p.vx*=0.985; p.vy+=p.g; p.x+=p.vx; p.y+=p.vy; p.life++;
+        if(p.life>=p.max){ parts.splice(i,1); continue; }
+        fxCtx.globalAlpha=1-p.life/p.max; fxCtx.fillStyle=p.color;
+        fxCtx.beginPath(); fxCtx.arc(p.x,p.y,p.size,0,Math.PI*2); fxCtx.fill(); fxCtx.globalAlpha=1;
+      } else {
+        p.vy+=p.g; p.vx*=0.99; p.x+=p.vx; p.y+=p.vy; p.rot+=p.vr;
+        if(p.y>h+30){ parts.splice(i,1); continue; }
+        fxCtx.save(); fxCtx.translate(p.x,p.y); fxCtx.rotate(p.rot*Math.PI/180);
+        fxCtx.fillStyle=p.color; fxCtx.fillRect(-p.size/2,-p.size/2,p.size,p.size*0.6); fxCtx.restore();
+      }
+    }
+    if(el<11500 && (el<9000 || parts.length)) requestAnimationFrame(frame);
+    else fxCtx.clearRect(0,0,w,h);
+  }
+  requestAnimationFrame(frame);
 }
 function showLosingShowcase(losers){
   const old=document.getElementById('loseShowcase'); if(old) old.remove();
@@ -357,6 +495,11 @@ async function save(){ await gameRef.set(state); }
 
 function render(){
   if(!state) return;
+  let dealNow=false;
+  const firstRender=(lastDealRound===null);
+  if(state.phase!=='ended') lastWinKey=null;
+  if(lastDealRound===null){ lastDealRound=state.roundNum||0; }
+  else if((state.roundNum||0)!==lastDealRound){ lastDealRound=state.roundNum||0; dealNow=true; }
   if(state.log){
     if(lastLogLen===null) lastLogLen=state.log.length;
     else if(state.log.length>lastLogLen){ state.log.slice(lastLogLen).forEach(reactToLogLine); lastLogLen=state.log.length; }
@@ -416,14 +559,30 @@ function render(){
     const me=state.players.find(p=>p.id===myId);
     const mc=document.getElementById('myCard');
     const meCardKey = me && me.card ? (me.card.r+'-'+me.card.si) : null;
-    if(!me || me.out){ mc.innerHTML='<i>spectating</i>'; lastMyCardKey=meCardKey; }
+    let swapHandled=false;
+    if(state.swapEventId){
+      if(lastSwapShown===null){ lastSwapShown=state.swapEventId; }
+      else if(state.swapEventId!==lastSwapShown){
+        lastSwapShown=state.swapEventId;
+        const sw=state.lastSwap;
+        if(sw && me && !me.out && me.card && lastMyCard && (sw.initiator===myId || sw.target===myId) && meCardKey!==lastMyCardKey && !swapAnimating){
+          swapHandled=true;
+          runSwapAnimation(lastMyCard, me.card, sw.initiator===myId ? -1 : 1);
+        }
+      }
+    }
+    if(!me || me.out){ mc.innerHTML='<i>spectating</i>'; lastMyCardKey=meCardKey; lastMyCard=null; }
+    else if(dealNow && me.card && !swapAnimating){ lastMyCardKey=meCardKey; lastMyCard=me.card; runDealAnimation(me.card); }
+    else if(swapHandled || swapAnimating){ lastMyCardKey=meCardKey; lastMyCard=me.card; }
     else if(meCardKey!==lastMyCardKey){
-      lastMyCardKey=meCardKey;
+      lastMyCardKey=meCardKey; lastMyCard=me.card;
       mc.innerHTML=cardEl(null,true,true);
       setTimeout(()=>{ mc.innerHTML=cardEl(me.card,false,true); mc.classList.add('card-pop'); setTimeout(()=>mc.classList.remove('card-pop'),450); },500);
     } else {
+      lastMyCard=me.card;
       mc.innerHTML=cardEl(me.card,false,true);
-    }    let kp=document.getElementById('kingPrompt');
+    }
+    let kp=document.getElementById('kingPrompt');
     if(!kp){ kp=document.createElement('div'); kp.id='kingPrompt'; kp.style.cssText='margin:8px auto;max-width:340px;background:rgba(232,193,90,.15);border:1px solid var(--gold);border-radius:8px;padding:8px;text-align:center;font-size:.9em'; document.getElementById('myCard').insertAdjacentElement('afterend',kp); }
     const kingHolder = state.turnOrder.map(id=>state.players.find(p=>p.id===id)).find(p=>p.card && p.card.r===11 && p.card.si===0);
     if(me && !me.out && me.card && me.card.r===11 && me.card.si===0){
@@ -454,7 +613,7 @@ function render(){
       const turnKey=(state.roundNum||0)+'-'+state.turnIndex;
       if(turnKey!==lastPingKey){ lastPingKey=turnKey; if(curId===myId) playPing(); }
       if(curId===myId){
-        const keepBtn=document.createElement('button'); keepBtn.textContent='Keep'; keepBtn.onclick=()=>{ playBip(); act('keep'); showReactionBar(); };
+        const keepBtn=document.createElement('button'); keepBtn.textContent='Keep'; keepBtn.disabled=swapAnimating; keepBtn.onclick=()=>{ playBip(); act('keep'); showReactionBar(); };
         ar.appendChild(keepBtn);
         const nextP = !isDealer ? state.players.find(p=>p.id===state.turnOrder[state.turnIndex+1]) : null;
         const nextIsKing = nextP && nextP.card.r===11 && nextP.card.si===0;
@@ -463,7 +622,7 @@ function render(){
           note.textContent='🚫 No swap available — '+nextP.name+' holds the King of Spades.';
           ar.appendChild(note);
         } else {
-          const swapBtn=document.createElement('button'); swapBtn.textContent=isDealer?'Swap with deck':('Swap with '+nextP.name); swapBtn.onclick=()=>{ playWhoosh(); act('swap'); showReactionBar(); };
+          const swapBtn=document.createElement('button'); swapBtn.textContent=isDealer?'Swap with deck':('Swap with '+nextP.name); swapBtn.disabled=swapAnimating; swapBtn.onclick=()=>{ playWhoosh(); act('swap'); showReactionBar(); };
           ar.appendChild(swapBtn);
         }
       }
@@ -489,6 +648,13 @@ function render(){
   } else if(state.phase==='ended'){
     endP.classList.remove('hidden');
     const winner=state.players.find(p=>!p.out);
+    const winKey='win-'+(state.roundNum||0);
+    if(lastWinKey!==winKey){
+      lastWinKey=winKey;
+      if(!firstRender && winner){
+        setTimeout(()=>{ if(state && state.phase==='ended' && lastWinKey===winKey) celebrateWinner(winner.name, winner.id===myId); }, 3800);
+      }
+    }
     endP.innerHTML='<h2 style="color:var(--gold)">'+esc(winner?winner.name:'?')+' wins the table! 🏆</h2>'+(isHost()?'<button id="againBtn">Play Again</button>':'<p>Waiting for host...</p>');
     if(isHost()){
       document.getElementById('againBtn').onclick=()=>{
@@ -517,13 +683,13 @@ async function act(action){
   const isDealer=state.turnIndex===state.turnOrder.length-1;
   if(action==='swap'){
     if(isDealer){
-      if(state.deck.length>0){ player.card=state.deck.pop(); log(player.name+' swapped with the deck.'); }
+      if(state.deck.length>0){ player.card=state.deck.pop(); state.swapEventId=(state.swapEventId||0)+1; state.lastSwap={initiator:curId,target:null}; log(player.name+' swapped with the deck.'); }
       else { log('Deck empty — '+player.name+' keeps.'); }
     } else {
       const nextId=state.turnOrder[state.turnIndex+1];
       const nextP=state.players.find(p=>p.id===nextId);
       if(nextP.card.r===11){ log(player.name+' tried to swap but '+nextP.name+' holds a King — protected!'); }
-      else { const tmp=player.card; player.card=nextP.card; nextP.card=tmp; log(player.name+' swapped with '+nextP.name+'.'); }
+      else { const tmp=player.card; player.card=nextP.card; nextP.card=tmp; state.swapEventId=(state.swapEventId||0)+1; state.lastSwap={initiator:curId,target:nextId}; log(player.name+' swapped with '+nextP.name+'.'); }
     }
   } else { log(player.name+' kept their card.'); }
   state.turnIndex++;
@@ -549,7 +715,7 @@ async function finishRound(){
 }
 
 function subscribe(){
-  lastLogLen=null; lastElimShown=null; lastLives={}; lastReactionShown=null; revealReadyKey=null;
+  lastLogLen=null; lastElimShown=null; lastLives={}; lastReactionShown=null; revealReadyKey=null; lastSwapShown=null; lastMyCard=null; lastDealRound=null; lastWinKey=null;
   gameRef=rtdb.ref('games/'+roomCode);
   gameRef.on('value', snap=>{ const v=snap.val(); if(v){ state=v; render(); } });
 }
