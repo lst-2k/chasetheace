@@ -3,6 +3,9 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
+<meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+<meta http-equiv="Pragma" content="no-cache">
+<meta http-equiv="Expires" content="0">
 <title>Chase the Ace</title>
 <style>
 :root{--felt:#0b5d33;--felt2:#0e7a41;--gold:#e8c15a;--card-bg:#fffdf7;--card-red:#b8283a;--card-black:#1a1a1a;--panel:rgba(0,0,0,.35)}
@@ -23,6 +26,8 @@ button.secondary{background:#3a3a3a;color:#fff}
 .playing-card{position:relative;display:inline-block;width:64px;height:92px;background:var(--card-bg);border-radius:8px;box-shadow:0 2px 6px rgba(0,0,0,.5);margin:4px;overflow:hidden;vertical-align:top}
 .playing-card.mine{width:100px;height:144px;box-shadow:0 4px 12px rgba(0,0,0,.6)}
 .playing-card.back{background:repeating-linear-gradient(45deg,#7a1730,#7a1730 6px,#5c1024 6px,#5c1024 12px)}
+.half-deck{width:100px;height:144px;border-radius:8px;margin:4px;background:repeating-linear-gradient(45deg,#7a1730,#7a1730 6px,#5c1024 6px,#5c1024 12px);box-shadow:3px 3px 0 -1px rgba(0,0,0,.35),6px 6px 0 -1px rgba(0,0,0,.3),9px 9px 0 -1px rgba(0,0,0,.25),0 4px 14px rgba(0,0,0,.6);cursor:pointer;display:inline-block;vertical-align:top;animation:deckPulse 1.4s ease-in-out infinite}
+@keyframes deckPulse{0%,100%{transform:scale(1)}50%{transform:scale(1.04)}}
 .playing-card.losing{animation:losePulse 1.1s ease-in-out infinite}
 .card-pop{animation:cardPop .45s ease-out}
 @keyframes cardPop{0%{transform:scale(.55) rotate(-8deg);opacity:0}100%{transform:scale(1) rotate(0);opacity:1}}
@@ -103,7 +108,7 @@ details p, details li{font-size:.92em;line-height:1.4}
 
 <div id="screen-game" class="hidden">
   <div class="card-box center">Table code: <span class="code-badge" id="codeShown"></span>
-    <div><button id="leaveBtn" class="secondary" style="margin-top:8px;font-size:.8em;padding:6px 12px">Leave Table</button> <button id="musicToggleBtn" class="secondary" style="margin-top:8px;font-size:.8em;padding:6px 12px">🎵 Music: On</button></div>
+    <div><button id="leaveBtn" class="secondary" style="margin-top:8px;font-size:.8em;padding:6px 12px">Leave Table</button> <button id="musicToggleBtn" class="secondary" style="margin-top:8px;font-size:.8em;padding:6px 12px">🎵 Music: On</button> <button id="forceReloadBtn" class="secondary" style="margin-top:8px;font-size:.8em;padding:6px 12px">🔄 Refresh Everyone</button></div>
   </div>
   <div id="lobbyPanel" class="card-box hidden">
     <p><b>Players seated:</b></p>
@@ -126,6 +131,10 @@ details p, details li{font-size:.92em;line-height:1.4}
     <div class="row" id="revealControls"></div>
     <div class="log" id="logBox"></div>
   </div>
+  <div id="tiePanel" class="card-box hidden center">
+    <div id="tieBanner" style="font-weight:bold;color:var(--gold);margin-bottom:10px;font-size:1.1em"></div>
+    <div class="table-strip" id="tieStrip"></div>
+  </div>
   <div id="endPanel" class="card-box hidden center"></div>
 </div>
 
@@ -139,6 +148,7 @@ details p, details li{font-size:.92em;line-height:1.4}
 <li>The last player each round (the dealer) swaps with the deck instead of a person.</li>
 <li>After everyone has acted, cards are revealed. Lowest card loses a life — 2 is the lowest of the normal cards, but the <b>Ace is worth just 1 and is the lowest card in the whole deck</b>. You really don't want it!</li>
 <li>The <b>King is the highest card</b> in the deck and can't be swapped onto you.</li>
+<li>If two or more players tie for the lowest card, they cut the deck to decide — tap the deck when it's your turn. Whoever cuts the lowest card loses the life (cut again if still tied).</li>
 <li>Lose all 3 lives and you're out. Last player standing wins the table.</li>
 <li>After you Keep or Swap, a row of emoji appears — tap one to flood everyone's screen with it for a couple of seconds. Use it to celebrate, sulk, or bluff — nobody can tell if you're faking it! 😆</li>
 </ul>
@@ -162,7 +172,7 @@ const firebaseConfig = {
 firebase.initializeApp(firebaseConfig);
 const rtdb = firebase.database();
 
-let audioCtx=null, lastPingKey=null, lastRevealFired=null, lastMyCardKey=undefined, lastLogLen=null, lastElimShown=null, lastLives={}, lastReactionShown=null, reactionBarTimer=null, revealReadyKey=null, swapAnimating=false, lastSwapShown=null, lastMyCard=null, lastDealRound=null, lastWinKey=null;
+let audioCtx=null, lastPingKey=null, lastRevealFired=null, lastMyCardKey=undefined, lastLogLen=null, lastElimShown=null, lastLives={}, lastReactionShown=null, reactionBarTimer=null, revealReadyKey=null, swapAnimating=false, lastSwapShown=null, lastMyCard=null, lastDealRound=null, lastWinKey=null, lastForceReload=null;
 function floodEmojiScreen(emoji){
   for(let i=0;i<15;i++){
     setTimeout(()=>{
@@ -527,6 +537,10 @@ async function save(){ await gameRef.set(state); }
 
 function render(){
   if(!state) return;
+  if(state.forceReloadAt){
+    if(lastForceReload===null) lastForceReload=state.forceReloadAt;
+    else if(state.forceReloadAt!==lastForceReload){ location.reload(); return; }
+  }
   let dealNow=false;
   const firstRender=(lastDealRound===null);
   if(state.phase!=='ended') lastWinKey=null;
@@ -558,7 +572,8 @@ function render(){
   document.getElementById('screen-game').classList.remove('hidden');
   document.getElementById('codeShown').textContent=roomCode;
   const lobbyP=document.getElementById('lobbyPanel'), playP=document.getElementById('playPanel'), endP=document.getElementById('endPanel');
-  lobbyP.classList.add('hidden'); playP.classList.add('hidden'); endP.classList.add('hidden');
+  const tieP=document.getElementById('tiePanel');
+  lobbyP.classList.add('hidden'); playP.classList.add('hidden'); endP.classList.add('hidden'); tieP.classList.add('hidden');
 
   if(state.phase==='lobby'){
     lobbyP.classList.remove('hidden');
@@ -677,6 +692,28 @@ function render(){
     }
     const lb=document.getElementById('logBox'); lb.innerHTML=(state.log||[]).map(m=>'<div>'+esc(m)+'</div>').join('');
     lb.scrollTop=lb.scrollHeight;
+  } else if(state.phase==='tiebreak'){
+    tieP.classList.remove('hidden');
+    const t=state.tie;
+    const curId=t.ids[t.turnIndex];
+    const cur=state.players.find(p=>p.id===curId);
+    document.getElementById('tieBanner').textContent = curId===myId ? "It's a tie! Tap the deck to cut it..." : ("It's a tie! Waiting for "+(cur?cur.name:'?')+" to cut the deck...");
+    const tstrip=document.getElementById('tieStrip'); tstrip.innerHTML='';
+    t.ids.forEach(id=>{
+      const p=state.players.find(x=>x.id===id);
+      const seat=document.createElement('div'); seat.className='seat';
+      const res=t.results[id];
+      let cardHtml;
+      if(res) cardHtml=cardEl(res,false,false);
+      else if(id===curId) cardHtml='<div class="half-deck" id="cutDeckBtn"></div>';
+      else cardHtml=cardEl(null,true,false);
+      seat.innerHTML=cardHtml+'<div class="name">'+esc(p.name)+(id===myId?' (you)':'')+'</div>';
+      tstrip.appendChild(seat);
+    });
+    if(curId===myId && !t.results[myId]){
+      const btn=document.getElementById('cutDeckBtn');
+      if(btn) btn.onclick=()=>{ playWhoosh(); cutDeck(); };
+    }
   } else if(state.phase==='ended'){
     endP.classList.remove('hidden');
     const winner=state.players.find(p=>!p.out);
@@ -737,17 +774,48 @@ async function finishRound(){
   const cards=state.turnOrder.map(pid=>state.players.find(p=>p.id===pid));
   const minR=Math.min(...cards.map(p=>cardValue(p.card)));
   const losers=cards.filter(p=>cardValue(p.card)===minR);
+  if(losers.length>1){
+    state.tie={ids:losers.map(p=>p.id), results:{}, turnIndex:0};
+    state.phase='tiebreak';
+    log('Tie for lowest between '+losers.map(p=>p.name).join(' & ')+' — cutting the deck to decide who loses a life.');
+    await save();
+    return;
+  }
+  applyLifeLoss(losers);
+  await save();
+}
+function applyLifeLoss(losers){
   const eliminatedNames=[];
   losers.forEach(p=>{ p.lives--; if(p.lives<=0){ p.out=true; eliminatedNames.push(p.name); log(p.name+' is out of lives — eliminated!'); } else { log(p.name+' had the lowest card and lost a life.'); } });
   state.lastEliminated=eliminatedNames;
   state.elimEventId=(state.elimEventId||0)+1;
   const remaining=state.players.filter(p=>!p.out);
   state.phase = remaining.length<=1 ? 'ended' : 'lobby';
+  state.tie=null;
+}
+async function cutDeck(){
+  const t=state.tie; if(!t) return;
+  const curId=t.ids[t.turnIndex]; if(curId!==myId) return;
+  const card={r:Math.floor(Math.random()*9), si:Math.floor(Math.random()*4)};
+  t.results[curId]=card;
+  log(state.players.find(p=>p.id===curId).name+' cut the deck.');
+  t.turnIndex++;
+  if(t.turnIndex>=t.ids.length){
+    const vals=t.ids.map(id=>cardValue(t.results[id]));
+    const minV=Math.min(...vals);
+    const stillTied=t.ids.filter(id=>cardValue(t.results[id])===minV);
+    if(stillTied.length>1){
+      log('Still tied on the cut — cutting again...');
+      state.tie={ids:stillTied, results:{}, turnIndex:0};
+    } else {
+      applyLifeLoss([state.players.find(p=>p.id===stillTied[0])]);
+    }
+  }
   await save();
 }
 
 function subscribe(){
-  lastLogLen=null; lastElimShown=null; lastLives={}; lastReactionShown=null; revealReadyKey=null; lastSwapShown=null; lastMyCard=null; lastDealRound=null; lastWinKey=null;
+  lastLogLen=null; lastElimShown=null; lastLives={}; lastReactionShown=null; revealReadyKey=null; lastSwapShown=null; lastMyCard=null; lastDealRound=null; lastWinKey=null; lastForceReload=null;
   gameRef=rtdb.ref('games/'+roomCode);
   gameRef.on('value', snap=>{ const v=snap.val(); if(v){ state=v; render(); } });
 }
@@ -799,6 +867,11 @@ document.getElementById('joinBtn').onclick=()=>{ ensureAudio(); joinRoom(); };
 document.getElementById('testSoundBtn').onclick=()=>{ ensureAudio(); playPing(); };
 document.getElementById('musicToggleBtn').textContent='🎵 Music: '+(musicOn?'On':'Off');
 document.getElementById('musicToggleBtn').onclick=()=>setMusic(!musicOn);
+document.getElementById('forceReloadBtn').onclick=async()=>{
+  if(!state) return;
+  state.forceReloadAt=Date.now();
+  await save();
+};
 document.getElementById('leaveBtn').onclick=()=>{
   if(gameRef) try{ gameRef.off(); }catch(e){}
   clearSession(); roomCode=null; state=null; gameRef=null;
