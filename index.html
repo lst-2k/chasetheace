@@ -439,46 +439,33 @@ try{ musicOn=localStorage.getItem('cta_music')!=='off'; }catch(e){}
 function startAmbientMusic(){
   if(!audioCtx || musicStarted) return;
   musicStarted=true;
-  musicGain=audioCtx.createGain(); musicGain.gain.value=musicOn?0.035:0;
-  const filt=audioCtx.createBiquadFilter(); filt.type='lowpass'; filt.frequency.value=1200;
+  musicGain=audioCtx.createGain(); musicGain.gain.value=musicOn?0.09:0;
+  const filt=audioCtx.createBiquadFilter(); filt.type='lowpass'; filt.frequency.value=3200;
   musicGain.connect(filt); filt.connect(audioCtx.destination);
-  const chords=[
-    [130.81,164.81,196.00,246.94],
-    [110.00,130.81,164.81,196.00],
-    [87.31,110.00,130.81,164.81],
-    [98.00,123.47,146.83,174.61]
+  const phrase=[
+    {f:261.63,d:0.45},{f:329.63,d:0.45},{f:392.00,d:0.45},{f:329.63,d:0.45},
+    {f:440.00,d:0.45},{f:392.00,d:0.45},{f:329.63,d:0.6},{f:261.63,d:0.9}
   ];
-  let chordIdx=0;
-  const pads=chords[0].map(f=>{
-    const o=audioCtx.createOscillator(), g=audioCtx.createGain();
-    o.type='sine'; o.frequency.value=f; g.gain.value=0.5;
-    o.connect(g); g.connect(musicGain); o.start();
-    return o;
-  });
-  setInterval(()=>{
-    chordIdx=(chordIdx+1)%chords.length;
-    const target=chords[chordIdx];
-    pads.forEach((o,i)=>o.frequency.linearRampToValueAtTime(target[i], audioCtx.currentTime+3.5));
-  }, 9000);
-  function pluck(){
-    if(musicOn){
-      const chord=chords[chordIdx];
-      const f=chord[Math.floor(Math.random()*chord.length)]*2;
-      const o=audioCtx.createOscillator(), g=audioCtx.createGain(), now=audioCtx.currentTime;
-      o.type='sine'; o.frequency.value=f;
-      g.gain.setValueAtTime(0.0001,now);
-      g.gain.exponentialRampToValueAtTime(0.09,now+0.05);
-      g.gain.exponentialRampToValueAtTime(0.0001,now+1.6);
-      o.connect(g); g.connect(musicGain); o.start(now); o.stop(now+1.7);
-    }
-    setTimeout(pluck, 2200+Math.random()*2600);
+  function playNote(f,dur){
+    const o=audioCtx.createOscillator(), g=audioCtx.createGain(), now=audioCtx.currentTime;
+    o.type='sine'; o.frequency.value=f;
+    g.gain.setValueAtTime(0.0001,now);
+    g.gain.exponentialRampToValueAtTime(0.55,now+0.03);
+    g.gain.exponentialRampToValueAtTime(0.0001,now+dur);
+    o.connect(g); g.connect(musicGain); o.start(now); o.stop(now+dur+0.05);
   }
-  setTimeout(pluck, 2500);
+  function playPhrase(){
+    let t=0;
+    if(musicOn) phrase.forEach(n=>{ setTimeout(()=>playNote(n.f,n.d),t*1000); t+=n.d*0.9; });
+    else t=phrase.reduce((a,n)=>a+n.d*0.9,0);
+    setTimeout(playPhrase, t*1000+5500);
+  }
+  setTimeout(playPhrase, 2000);
 }
 function setMusic(on){
   musicOn=on;
   try{ localStorage.setItem('cta_music', on?'on':'off'); }catch(e){}
-  if(musicGain) musicGain.gain.value=on?0.035:0;
+  if(musicGain) musicGain.gain.value=on?0.09:0;
   const b=document.getElementById('musicToggleBtn'); if(b) b.textContent='🎵 Music: '+(on?'On':'Off');
 }
 function tone(freq,duration,type,vol){
