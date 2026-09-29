@@ -95,11 +95,15 @@ details p, details li{font-size:.92em;line-height:1.4}
   <input id="codeInput" maxlength="4" placeholder="TABLE CODE" style="text-transform:uppercase">
   <div class="row"><button id="joinBtn" class="secondary">Join Table</button></div>
   <p id="joinMsg" style="color:#ffb3b3"></p>
+  <div class="row" style="margin-top:10px">
+    <button id="testSoundBtn" class="secondary" style="font-size:.85em;padding:6px 12px">🔊 Test Sound</button>
+  </div>
+  <p style="opacity:.7;font-size:.8em;margin-top:4px">If you're opening this from WhatsApp or another app, tap the link's menu and choose "Open in Browser" first — in-app browsers often block sound.</p>
 </div>
 
 <div id="screen-game" class="hidden">
   <div class="card-box center">Table code: <span class="code-badge" id="codeShown"></span>
-    <div><button id="leaveBtn" class="secondary" style="margin-top:8px;font-size:.8em;padding:6px 12px">Leave Table</button></div>
+    <div><button id="leaveBtn" class="secondary" style="margin-top:8px;font-size:.8em;padding:6px 12px">Leave Table</button> <button id="musicToggleBtn" class="secondary" style="margin-top:8px;font-size:.8em;padding:6px 12px">🎵 Music: On</button></div>
   </div>
   <div id="lobbyPanel" class="card-box hidden">
     <p><b>Players seated:</b></p>
@@ -419,7 +423,40 @@ function fireConfetti(){
   }
   requestAnimationFrame(frame);
 }
-function ensureAudio(){ try{ if(!audioCtx) audioCtx=new (window.AudioContext||window.webkitAudioContext)(); if(audioCtx.state==='suspended') audioCtx.resume(); }catch(e){} }
+function ensureAudio(){
+  try{
+    if(!audioCtx) audioCtx=new (window.AudioContext||window.webkitAudioContext)();
+    if(audioCtx.state==='suspended') audioCtx.resume();
+    const o=audioCtx.createOscillator(), g=audioCtx.createGain();
+    g.gain.value=0.0001; o.frequency.value=440;
+    o.connect(g); g.connect(audioCtx.destination);
+    o.start(); o.stop(audioCtx.currentTime+0.02);
+    startAmbientMusic();
+  }catch(e){}
+}
+let musicGain=null, musicStarted=false, musicOn=true;
+try{ musicOn=localStorage.getItem('cta_music')!=='off'; }catch(e){}
+function startAmbientMusic(){
+  if(!audioCtx || musicStarted) return;
+  musicStarted=true;
+  musicGain=audioCtx.createGain(); musicGain.gain.value=musicOn?0.035:0;
+  const filt=audioCtx.createBiquadFilter(); filt.type='lowpass'; filt.frequency.value=900;
+  musicGain.connect(filt); filt.connect(audioCtx.destination);
+  [130.81,164.81,196.00,246.94].forEach(f=>{
+    const o=audioCtx.createOscillator(), g=audioCtx.createGain();
+    o.type='sine'; o.frequency.value=f; g.gain.value=0.6;
+    o.connect(g); g.connect(musicGain); o.start();
+  });
+  const lfo=audioCtx.createOscillator(), lfoGain=audioCtx.createGain();
+  lfo.frequency.value=0.05; lfoGain.gain.value=0.015;
+  lfo.connect(lfoGain); lfoGain.connect(musicGain.gain); lfo.start();
+}
+function setMusic(on){
+  musicOn=on;
+  try{ localStorage.setItem('cta_music', on?'on':'off'); }catch(e){}
+  if(musicGain) musicGain.gain.value=on?0.035:0;
+  const b=document.getElementById('musicToggleBtn'); if(b) b.textContent='🎵 Music: '+(on?'On':'Off');
+}
 function tone(freq,duration,type,vol){
   if(!audioCtx) return;
   const osc=audioCtx.createOscillator(), gain=audioCtx.createGain();
@@ -764,6 +801,9 @@ document.querySelectorAll('.react-btn').forEach(b=>{
 });
 document.getElementById('createBtn').onclick=()=>{ ensureAudio(); createRoom(); };
 document.getElementById('joinBtn').onclick=()=>{ ensureAudio(); joinRoom(); };
+document.getElementById('testSoundBtn').onclick=()=>{ ensureAudio(); playPing(); };
+document.getElementById('musicToggleBtn').textContent='🎵 Music: '+(musicOn?'On':'Off');
+document.getElementById('musicToggleBtn').onclick=()=>setMusic(!musicOn);
 document.getElementById('leaveBtn').onclick=()=>{
   if(gameRef) try{ gameRef.off(); }catch(e){}
   clearSession(); roomCode=null; state=null; gameRef=null;
