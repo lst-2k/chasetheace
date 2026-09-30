@@ -100,9 +100,6 @@ details p, details li{font-size:.92em;line-height:1.4}
   <input id="codeInput" maxlength="4" placeholder="TABLE CODE" style="text-transform:uppercase">
   <div class="row"><button id="joinBtn" class="secondary">Join Table</button></div>
   <p id="joinMsg" style="color:#ffb3b3"></p>
-  <div class="row" style="margin-top:10px">
-    <button id="testSoundBtn" class="secondary" style="font-size:.85em;padding:6px 12px">🔊 Test Sound</button>
-  </div>
   <p style="opacity:.7;font-size:.8em;margin-top:4px">If you're opening this from WhatsApp or another app, tap the link's menu and choose "Open in Browser" first — in-app browsers often block sound.</p>
 </div>
 
@@ -448,12 +445,10 @@ function ensureAudio(){
 let musicGain=null, musicStarted=false, musicOn=true;
 try{ musicOn=localStorage.getItem('cta_music')!=='off'; }catch(e){}
 function startAmbientMusic(){
-  if(musicStarted) return;
-  musicStarted=true;
   const el=document.getElementById('bgMusic');
   if(!el) return;
   el.volume=0.45;
-  if(musicOn) el.play().catch(()=>{});
+  if(musicOn && el.paused) el.play().catch(()=>{});
 }
 function setMusic(on){
   musicOn=on;
@@ -699,10 +694,11 @@ function render(){
     const cur=state.players.find(p=>p.id===curId);
     document.getElementById('tieBanner').textContent = curId===myId ? "It's a tie! Tap the deck to cut it..." : ("It's a tie! Waiting for "+(cur?cur.name:'?')+" to cut the deck...");
     const tstrip=document.getElementById('tieStrip'); tstrip.innerHTML='';
+    const tResults=t.results||{};
     t.ids.forEach(id=>{
       const p=state.players.find(x=>x.id===id);
       const seat=document.createElement('div'); seat.className='seat';
-      const res=t.results[id];
+      const res=tResults[id];
       let cardHtml;
       if(res) cardHtml=cardEl(res,false,false);
       else if(id===curId) cardHtml='<div class="half-deck" id="cutDeckBtn"></div>';
@@ -710,7 +706,7 @@ function render(){
       seat.innerHTML=cardHtml+'<div class="name">'+esc(p.name)+(id===myId?' (you)':'')+'</div>';
       tstrip.appendChild(seat);
     });
-    if(curId===myId && !t.results[myId]){
+    if(curId===myId && !tResults[myId]){
       const btn=document.getElementById('cutDeckBtn');
       if(btn) btn.onclick=()=>{ playWhoosh(); cutDeck(); };
     }
@@ -752,7 +748,7 @@ async function act(action){
   const isDealer=state.turnIndex===state.turnOrder.length-1;
   if(action==='swap'){
     if(isDealer){
-      if(state.deck.length>0){ player.card=state.deck.pop(); state.swapEventId=(state.swapEventId||0)+1; state.lastSwap={initiator:curId,target:null}; log(player.name+' swapped with the deck.'); }
+      if(state.deck && state.deck.length>0){ player.card=state.deck.pop(); state.swapEventId=(state.swapEventId||0)+1; state.lastSwap={initiator:curId,target:null}; log(player.name+' swapped with the deck.'); }
       else { log('Deck empty — '+player.name+' keeps.'); }
     } else {
       const nextId=state.turnOrder[state.turnIndex+1];
@@ -796,6 +792,7 @@ function applyLifeLoss(losers){
 async function cutDeck(){
   const t=state.tie; if(!t) return;
   const curId=t.ids[t.turnIndex]; if(curId!==myId) return;
+  if(!t.results) t.results={};
   const card={r:Math.floor(Math.random()*9), si:Math.floor(Math.random()*4)};
   t.results[curId]=card;
   log(state.players.find(p=>p.id===curId).name+' cut the deck.');
@@ -864,7 +861,6 @@ document.querySelectorAll('.react-btn').forEach(b=>{
 });
 document.getElementById('createBtn').onclick=()=>{ ensureAudio(); createRoom(); };
 document.getElementById('joinBtn').onclick=()=>{ ensureAudio(); joinRoom(); };
-document.getElementById('testSoundBtn').onclick=()=>{ ensureAudio(); playPing(); };
 document.getElementById('musicToggleBtn').textContent='🎵 Music: '+(musicOn?'On':'Off');
 document.getElementById('musicToggleBtn').onclick=()=>setMusic(!musicOn);
 document.getElementById('forceReloadBtn').onclick=async()=>{
