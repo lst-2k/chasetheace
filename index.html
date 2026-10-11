@@ -36,6 +36,12 @@ button.secondary{background:#3a3a3a;color:#fff}
 @keyframes cardPop{0%{transform:scale(.55) rotate(-8deg);opacity:0}100%{transform:scale(1) rotate(0);opacity:1}}
 .flip-reveal{display:inline-block;animation:flipReveal .6s ease-out}
 @keyframes flipReveal{0%{transform:scale(1.1) perspective(600px) rotateY(90deg)}45%{transform:scale(1.15) perspective(600px) rotateY(0deg)}100%{transform:scale(1) perspective(600px) rotateY(0deg)}}
+#tieTransitionOverlay{position:fixed;inset:0;z-index:9994;display:flex;flex-direction:column;align-items:center;justify-content:center;background:rgba(0,0,0,0);opacity:0;transition:opacity 1.1s ease,background 1.1s ease;pointer-events:none}
+#tieTransitionOverlay.show{opacity:1;background:rgba(0,0,0,.88)}
+#tieTransitionOverlay .ttTitle{color:var(--gold);font-size:1.7em;font-weight:bold;letter-spacing:1px;margin-bottom:16px;opacity:0;transition:opacity 1s ease .45s}
+#tieTransitionOverlay.show .ttTitle{opacity:1}
+#tieTransitionOverlay .ttPlayers{display:flex;gap:22px;opacity:0;transition:opacity 1s ease .65s}
+#tieTransitionOverlay.show .ttPlayers{opacity:1}
 .heart-burst{position:fixed;transform:translate(-50%,-50%);font-size:1.5em;color:#ff3b3b;pointer-events:none;z-index:9998;animation:heartBurst 1.1s ease-out forwards}
 @keyframes heartBurst{
   0%,20%,40%{transform:translate(-50%,-50%) scale(1);opacity:1}
@@ -151,7 +157,7 @@ details p, details li{font-size:.92em;line-height:1.4}
 <li>A player holding a <b>King</b> is protected — you can't force a swap onto them.</li>
 <li>The last player each round (the dealer) swaps with the deck instead of a person.</li>
 <li>After everyone has acted, cards are revealed. Lowest card loses a life — 2 is the lowest of the normal cards, but the <b>Ace is worth just 1 and is the lowest card in the whole deck</b>. You really don't want it!</li>
-<li>The <b>King is the highest card</b> in the deck and can't be swapped onto you.</li>
+<li>The <b>King is the highest card</b> in the deck and can't be swapped onto you. If you're dealt it, it's shown face up on the table for everyone to see, and on your turn it's automatically kept and play moves straight to the next player.</li>
 <li>If two or more players tie for the lowest card, they cut the deck to decide — tap the deck when it's your turn. Whoever cuts the lowest card loses the life (cut again if still tied).</li>
 <li>Lose all 3 lives and you're out. Last player standing wins the table.</li>
 <li>After you Keep or Swap, a row of emoji appears — tap one to flood everyone's screen with it for a couple of seconds. Use it to celebrate, sulk, or bluff — nobody can tell if you're faking it! 😆</li>
@@ -178,7 +184,7 @@ firebase.initializeApp(firebaseConfig);
 const authReady = firebase.auth().signInAnonymously().catch(e=>{ console.error('Anonymous auth failed:', e); });
 const rtdb = firebase.database();
 
-let audioCtx=null, lastPingKey=null, lastRevealFired=null, lastMyCardKey=undefined, lastLogLen=null, lastElimShown=null, lastLives={}, lastReactionShown=null, reactionBarTimer=null, revealReadyKey=null, swapAnimating=false, lastSwapShown=null, lastMyCard=null, lastDealRound=null, lastWinKey=null, lastForceReload=null, lastTieEventSeen=null, tieRevealedSeen={}, lastTieReadyKey=null, tieReadyAt=null, lastTieResolvedShown=null;
+let audioCtx=null, lastPingKey=null, lastRevealFired=null, lastMyCardKey=undefined, lastLogLen=null, lastElimShown=null, lastLives={}, lastReactionShown=null, reactionBarTimer=null, revealReadyKey=null, swapAnimating=false, lastSwapShown=null, lastMyCard=null, lastDealRound=null, lastWinKey=null, lastForceReload=null, lastTieEventSeen=null, tieRevealedSeen={}, lastTieReadyKey=null, tieReadyAt=null, lastTieResolvedShown=null, lastAutoKingKey=null;
 function floodEmojiScreen(emoji){
   for(let i=0;i<15;i++){
     setTimeout(()=>{
@@ -333,6 +339,14 @@ function celebrateWinner(name,isMe){
     else fxCtx.clearRect(0,0,w,h);
   }
   requestAnimationFrame(frame);
+}
+function showTieTransition(losers){
+  const old=document.getElementById('tieTransitionOverlay'); if(old) old.remove();
+  const ov=document.createElement('div'); ov.id='tieTransitionOverlay';
+  ov.innerHTML='<div class="ttTitle">It\'s a tie!</div><div class="ttPlayers">'+losers.map(p=>'<div style="text-align:center"><div style="color:#fff;margin-bottom:6px;font-weight:bold">'+esc(p.name)+'</div>'+cardEl(p.card,false,true)+'</div>').join('')+'</div>';
+  document.body.appendChild(ov);
+  requestAnimationFrame(()=>ov.classList.add('show'));
+  setTimeout(()=>{ ov.classList.remove('show'); setTimeout(()=>ov.remove(),1100); }, 3200);
 }
 function showLosingShowcase(losers){
   const old=document.getElementById('loseShowcase'); if(old) old.remove();
@@ -652,12 +666,15 @@ function render(){
     } else { kp.classList.add('hidden'); }
     const strip=document.getElementById('tableStrip'); strip.innerHTML='';
     const revealed = state.phase==='revealed';
+    const amSpectating = me && me.out;
     const minR = revealed ? Math.min(...state.turnOrder.map(id=>cardValue(state.players.find(p=>p.id===id).card))) : null;
     state.turnOrder.forEach(pid=>{
       const p=state.players.find(x=>x.id===pid);
       const seat=document.createElement('div'); seat.className='seat';
       const losing = revealed && cardValue(p.card)===minR;
-      seat.innerHTML = cardEl(p.card, !revealed, false, losing) + '<div class="name">'+esc(p.name)+(pid===myId?' (you)':'')+'</div><div class="lives" id="hearts-'+pid+'">'+('♥'.repeat(Math.max(p.lives,0)))+'</div>';
+      const isKingCard = p.card && p.card.r===11 && p.card.si===0;
+      const faceUp = revealed || isKingCard || amSpectating;
+      seat.innerHTML = cardEl(p.card, !faceUp, false, losing) + '<div class="name">'+esc(p.name)+(pid===myId?' (you)':'')+'</div><div class="lives" id="hearts-'+pid+'">'+('♥'.repeat(Math.max(p.lives,0)))+'</div>';
       strip.appendChild(seat);
     });
     const ar=document.getElementById('actionRow'); ar.innerHTML='';
@@ -671,17 +688,28 @@ function render(){
       const turnKey=(state.roundNum||0)+'-'+state.turnIndex;
       if(turnKey!==lastPingKey){ lastPingKey=turnKey; if(curId===myId) playPing(); }
       if(curId===myId){
-        const keepBtn=document.createElement('button'); keepBtn.textContent='Keep'; keepBtn.disabled=swapAnimating; keepBtn.onclick=()=>{ playBip(); act('keep'); showReactionBar(); };
-        ar.appendChild(keepBtn);
-        const nextP = !isDealer ? state.players.find(p=>p.id===state.turnOrder[state.turnIndex+1]) : null;
-        const nextIsKing = nextP && nextP.card.r===11 && nextP.card.si===0;
-        if(nextIsKing){
-          const note=document.createElement('div'); note.style.cssText='width:100%;opacity:.8;font-size:.85em;margin-top:4px';
-          note.textContent='🚫 No swap available — '+nextP.name+' holds the King of Spades.';
+        const isKingHolder = me.card && me.card.r===11 && me.card.si===0;
+        if(isKingHolder){
+          if(turnKey!==lastAutoKingKey){
+            lastAutoKingKey=turnKey;
+            setTimeout(()=>{ act('keep'); }, 1200);
+          }
+          const note=document.createElement('div'); note.style.cssText='width:100%;opacity:.85;font-size:.9em';
+          note.textContent='👑 You hold the King — automatically keeping it and moving on...';
           ar.appendChild(note);
         } else {
-          const swapBtn=document.createElement('button'); swapBtn.textContent=isDealer?'Swap with deck':('Swap with '+nextP.name); swapBtn.disabled=swapAnimating; swapBtn.onclick=()=>{ playWhoosh(); act('swap'); showReactionBar(); };
-          ar.appendChild(swapBtn);
+          const keepBtn=document.createElement('button'); keepBtn.textContent='Keep'; keepBtn.disabled=swapAnimating; keepBtn.onclick=()=>{ playBip(); act('keep'); showReactionBar(); };
+          ar.appendChild(keepBtn);
+          const nextP = !isDealer ? state.players.find(p=>p.id===state.turnOrder[state.turnIndex+1]) : null;
+          const nextIsKing = nextP && nextP.card.r===11 && nextP.card.si===0;
+          if(nextIsKing){
+            const note=document.createElement('div'); note.style.cssText='width:100%;opacity:.8;font-size:.85em;margin-top:4px';
+            note.textContent='🚫 No swap available — '+nextP.name+' holds the King of Spades.';
+            ar.appendChild(note);
+          } else {
+            const swapBtn=document.createElement('button'); swapBtn.textContent=isDealer?'Swap with deck':('Swap with '+nextP.name); swapBtn.disabled=swapAnimating; swapBtn.onclick=()=>{ playWhoosh(); act('swap'); showReactionBar(); };
+            ar.appendChild(swapBtn);
+          }
         }
       }
     } else if(state.phase==='awaiting_reveal'){
@@ -693,7 +721,12 @@ function render(){
       if(revealKey!==lastRevealFired){
         lastRevealFired=revealKey;
         const losers=state.turnOrder.map(id=>state.players.find(p=>p.id===id)).filter(p=>cardValue(p.card)===minR);
-        setTimeout(()=>{ revealReadyKey=revealKey; fireConfetti(); showLosingShowcase(losers); render(); }, 5000);
+        setTimeout(()=>{
+          revealReadyKey=revealKey;
+          if(losers.length>1){ showTieTransition(losers); }
+          else { fireConfetti(); showLosingShowcase(losers); }
+          render();
+        }, 5000);
       }
       const ready = revealReadyKey===revealKey;
       if(isHost()){
@@ -874,7 +907,7 @@ async function resolveCut(){
 
 function subscribe(){
   lastLogLen=null; lastElimShown=null; lastLives={}; lastReactionShown=null; revealReadyKey=null; lastSwapShown=null; lastMyCard=null; lastDealRound=null; lastWinKey=null; lastForceReload=null;
-  lastTieEventSeen=null; tieRevealedSeen={}; lastTieReadyKey=null; tieReadyAt=null; lastTieResolvedShown=null;
+  lastTieEventSeen=null; tieRevealedSeen={}; lastTieReadyKey=null; tieReadyAt=null; lastTieResolvedShown=null; lastAutoKingKey=null;
   gameRef=rtdb.ref('games/'+roomCode);
   gameRef.on('value', snap=>{ const v=snap.val(); if(v){ state=v; render(); } });
 }
