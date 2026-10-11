@@ -107,6 +107,7 @@ details p, details li{font-size:.92em;line-height:1.4}
   <p>Enter your name to create or join a table.</p>
   <input id="nameInput" maxlength="20" placeholder="Your name">
   <div class="row"><button id="createBtn">Create New Table</button></div>
+  <p style="opacity:.6;font-size:.75em;margin-top:4px">Version <span id="appVersion"></span></p>
   <p style="margin-top:14px">Have a table code?</p>
   <input id="codeInput" maxlength="4" placeholder="TABLE CODE" style="text-transform:uppercase">
   <div class="row"><button id="joinBtn" class="secondary">Join Table</button></div>
@@ -117,6 +118,7 @@ details p, details li{font-size:.92em;line-height:1.4}
 
 <div id="screen-game" class="hidden">
   <div class="card-box center">Table code: <span class="code-badge" id="codeShown"></span>
+    <div style="opacity:.6;font-size:.75em;margin-top:4px">Version <span id="appVersionGame"></span></div>
     <div><button id="leaveBtn" class="secondary" style="margin-top:8px;font-size:.8em;padding:6px 12px">Leave Table</button> <button id="musicToggleBtn" class="secondary" style="margin-top:8px;font-size:.8em;padding:6px 12px">🎵 Music: On</button> <button id="forceReloadBtn" class="secondary" style="margin-top:8px;font-size:.8em;padding:6px 12px">🔄 Refresh Everyone</button></div>
   </div>
   <div id="lobbyPanel" class="card-box hidden">
@@ -184,6 +186,7 @@ firebase.initializeApp(firebaseConfig);
 const authReady = firebase.auth().signInAnonymously().catch(e=>{ console.error('Anonymous auth failed:', e); });
 const rtdb = firebase.database();
 
+const APP_VERSION='2026.10.11';
 let audioCtx=null, lastPingKey=null, lastRevealFired=null, lastMyCardKey=undefined, lastLogLen=null, lastElimShown=null, lastLives={}, lastReactionShown=null, reactionBarTimer=null, revealReadyKey=null, swapAnimating=false, lastSwapShown=null, lastMyCard=null, lastDealRound=null, lastWinKey=null, lastForceReload=null, lastTieEventSeen=null, tieRevealedSeen={}, lastTieReadyKey=null, tieReadyAt=null, lastTieResolvedShown=null, lastAutoKingKey=null;
 function floodEmojiScreen(emoji){
   for(let i=0;i<15;i++){
@@ -950,6 +953,8 @@ async function joinRoom(){
   subscribe();
 }
 
+document.getElementById('appVersion').textContent=APP_VERSION;
+document.getElementById('appVersionGame').textContent=APP_VERSION;
 myId=uid();
 renderTableDecor();
 fxCtx=initFx();
