@@ -186,8 +186,8 @@ firebase.initializeApp(firebaseConfig);
 const authReady = firebase.auth().signInAnonymously().catch(e=>{ console.error('Anonymous auth failed:', e); });
 const rtdb = firebase.database();
 
-const APP_VERSION='2026.10.11';
-let audioCtx=null, lastPingKey=null, lastRevealFired=null, lastMyCardKey=undefined, lastLogLen=null, lastElimShown=null, lastLives={}, lastReactionShown=null, reactionBarTimer=null, revealReadyKey=null, swapAnimating=false, lastSwapShown=null, lastMyCard=null, lastDealRound=null, lastWinKey=null, lastForceReload=null, lastTieEventSeen=null, tieRevealedSeen={}, lastTieReadyKey=null, tieReadyAt=null, lastTieResolvedShown=null, lastAutoKingKey=null;
+const APP_VERSION='2026.10.11b';
+let audioCtx=null, lastPingKey=null, lastRevealFired=null, lastMyCardKey=undefined, lastLogLen=null, lastElimShown=null, lastLives={}, lastReactionShown=null, reactionBarTimer=null, revealReadyKey=null, swapAnimating=false, lastSwapShown=null, lastMyCard=null, lastDealRound=null, lastWinKey=null, lastForceReload=null, lastTieEventSeen=null, tieRevealedSeen={}, lastTieReadyKey=null, tieReadyAt=null, lastTieResolvedShown=null, lastAutoKingKey=null, lastSpectatorSwapShown=null;
 function floodEmojiScreen(emoji){
   for(let i=0;i<15;i++){
     setTimeout(()=>{
@@ -342,6 +342,41 @@ function celebrateWinner(name,isMe){
     else fxCtx.clearRect(0,0,w,h);
   }
   requestAnimationFrame(frame);
+}
+function triggerSpectatorSwapAnim(aId,bId){
+  const seatA=document.getElementById('seat-'+aId), seatB=document.getElementById('seat-'+bId);
+  if(!seatA || !seatB) return;
+  const cardA=seatA.querySelector('.playing-card'), cardB=seatB.querySelector('.playing-card');
+  if(!cardA || !cardB) return;
+  const rA=cardA.getBoundingClientRect(), rB=cardB.getBoundingClientRect();
+  const center={x:(rA.left+rB.left)/2, y:(rA.top+rB.top)/2};
+  const vecA={x:rA.left-center.x, y:rA.top-center.y};
+  const vecB={x:rB.left-center.x, y:rB.top-center.y};
+  const rot=(v,deg)=>{ const r=deg*Math.PI/180; return {x:v.x*Math.cos(r)-v.y*Math.sin(r), y:v.x*Math.sin(r)+v.y*Math.cos(r)}; };
+  function buildKeyframes(startRect,vec){
+    const N=12, frames=[];
+    for(let i=0;i<=N;i++){
+      const t=i/N, ang=180*t;
+      const rv=rot(vec,ang);
+      const pos={x:center.x+rv.x, y:center.y+rv.y};
+      const dx=pos.x-startRect.left, dy=pos.y-startRect.top;
+      const scale=1+0.18*Math.sin(Math.PI*t);
+      frames.push({transform:'translate('+dx+'px,'+dy+'px) rotate('+(ang*2)+'deg) scale('+scale+')'});
+    }
+    return frames;
+  }
+  function makeClone(sourceCard,startRect){
+    const c=sourceCard.cloneNode(true);
+    c.style.position='fixed'; c.style.left=startRect.left+'px'; c.style.top=startRect.top+'px';
+    c.style.margin='0'; c.style.zIndex='9996'; c.style.pointerEvents='none';
+    document.body.appendChild(c);
+    return c;
+  }
+  const cloneA=makeClone(cardA,rA), cloneB=makeClone(cardB,rB);
+  const dur=1100;
+  cloneA.animate(buildKeyframes(rA,vecA),{duration:dur,easing:'ease-in-out'});
+  cloneB.animate(buildKeyframes(rB,vecB),{duration:dur,easing:'ease-in-out'});
+  setTimeout(()=>{ cloneA.remove(); cloneB.remove(); },dur+40);
 }
 function showTieTransition(losers){
   const old=document.getElementById('tieTransitionOverlay'); if(old) old.remove();
@@ -585,6 +620,16 @@ function render(){
       if(state.tieLoserShowcase) showLosingShowcase([state.tieLoserShowcase]);
     }
   }
+  if(state.swapEventId){
+    if(lastSpectatorSwapShown===null){ lastSpectatorSwapShown=state.swapEventId; }
+    else if(state.swapEventId!==lastSpectatorSwapShown){
+      lastSpectatorSwapShown=state.swapEventId;
+      const meNow=state.players.find(p=>p.id===myId);
+      if(meNow && meNow.out && state.lastSwap && state.lastSwap.target){
+        triggerSpectatorSwapAnim(state.lastSwap.initiator, state.lastSwap.target);
+      }
+    }
+  }
   state.players.forEach(p=>{
     if(lastLives[p.id]!==undefined && p.lives<lastLives[p.id]) triggerHeartBurst(p.id);
     lastLives[p.id]=p.lives;
@@ -673,7 +718,7 @@ function render(){
     const minR = revealed ? Math.min(...state.turnOrder.map(id=>cardValue(state.players.find(p=>p.id===id).card))) : null;
     state.turnOrder.forEach(pid=>{
       const p=state.players.find(x=>x.id===pid);
-      const seat=document.createElement('div'); seat.className='seat';
+      const seat=document.createElement('div'); seat.className='seat'; seat.id='seat-'+pid;
       const losing = revealed && cardValue(p.card)===minR;
       const isKingCard = p.card && p.card.r===11 && p.card.si===0;
       const faceUp = revealed || isKingCard || amSpectating;
@@ -910,7 +955,7 @@ async function resolveCut(){
 
 function subscribe(){
   lastLogLen=null; lastElimShown=null; lastLives={}; lastReactionShown=null; revealReadyKey=null; lastSwapShown=null; lastMyCard=null; lastDealRound=null; lastWinKey=null; lastForceReload=null;
-  lastTieEventSeen=null; tieRevealedSeen={}; lastTieReadyKey=null; tieReadyAt=null; lastTieResolvedShown=null; lastAutoKingKey=null;
+  lastTieEventSeen=null; tieRevealedSeen={}; lastTieReadyKey=null; tieReadyAt=null; lastTieResolvedShown=null; lastAutoKingKey=null; lastSpectatorSwapShown=null;
   gameRef=rtdb.ref('games/'+roomCode);
   gameRef.on('value', snap=>{ const v=snap.val(); if(v){ state=v; render(); } });
 }
