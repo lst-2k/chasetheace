@@ -119,7 +119,9 @@ details p, details li{font-size:.92em;line-height:1.4}
 <div id="screen-game" class="hidden">
   <div class="card-box center">Table code: <span class="code-badge" id="codeShown"></span>
     <div style="opacity:.6;font-size:.75em;margin-top:4px">Version <span id="appVersionGame"></span></div>
+    <div><button id="shareBtn" style="margin-top:8px;font-size:.8em;padding:6px 12px">📤 Share Table</button></div>
     <div><button id="leaveBtn" class="secondary" style="margin-top:8px;font-size:.8em;padding:6px 12px">Leave Table</button> <button id="musicToggleBtn" class="secondary" style="margin-top:8px;font-size:.8em;padding:6px 12px">🎵 Music: On</button> <button id="forceReloadBtn" class="secondary" style="margin-top:8px;font-size:.8em;padding:6px 12px">🔄 Refresh Everyone</button></div>
+    <p id="shareMsg" style="opacity:.7;font-size:.78em;margin-top:6px"></p>
   </div>
   <div id="lobbyPanel" class="card-box hidden">
     <p><b>Players seated:</b></p>
@@ -186,7 +188,7 @@ firebase.initializeApp(firebaseConfig);
 const authReady = firebase.auth().signInAnonymously().catch(e=>{ console.error('Anonymous auth failed:', e); });
 const rtdb = firebase.database();
 
-const APP_VERSION='2026.10.11b';
+const APP_VERSION='2026.10.25';
 let audioCtx=null, lastPingKey=null, lastRevealFired=null, lastMyCardKey=undefined, lastLogLen=null, lastElimShown=null, lastLives={}, lastReactionShown=null, reactionBarTimer=null, revealReadyKey=null, swapAnimating=false, lastSwapShown=null, lastMyCard=null, lastDealRound=null, lastWinKey=null, lastForceReload=null, lastTieEventSeen=null, tieRevealedSeen={}, lastTieReadyKey=null, tieReadyAt=null, lastTieResolvedShown=null, lastAutoKingKey=null, lastSpectatorSwapShown=null;
 function floodEmojiScreen(emoji){
   for(let i=0;i<15;i++){
@@ -1025,6 +1027,23 @@ document.getElementById('forceReloadBtn').onclick=async()=>{
   if(!state) return;
   state.forceReloadAt=Date.now();
   await save();
+};
+document.getElementById('shareBtn').onclick=async()=>{
+  if(!roomCode) return;
+  const url='https://lst-2k.github.io/chasetheace/';
+  const text='Join my Chase the Ace table! Table code: '+roomCode;
+  const msg=document.getElementById('shareMsg');
+  if(navigator.share){
+    try{ await navigator.share({title:'Chase the Ace', text:text, url:url}); }catch(e){}
+  } else {
+    try{
+      await navigator.clipboard.writeText(text+' — '+url);
+      msg.textContent='Link and code copied to clipboard!';
+      setTimeout(()=>{ msg.textContent=''; },3000);
+    }catch(e){
+      msg.textContent=text+' — '+url;
+    }
+  }
 };
 document.getElementById('leaveBtn').onclick=()=>{
   if(gameRef) try{ gameRef.off(); }catch(e){}
