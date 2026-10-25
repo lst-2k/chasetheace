@@ -112,6 +112,7 @@ details p, details li{font-size:.92em;line-height:1.4}
   <input id="codeInput" maxlength="4" placeholder="TABLE CODE" style="text-transform:uppercase">
   <div class="row"><button id="joinBtn" class="secondary">Join Table</button></div>
   <p id="joinMsg" style="color:#ffb3b3"></p>
+  <p id="linkMsg" style="color:var(--gold);font-size:.85em"></p>
   <p style="opacity:.7;font-size:.8em;margin-top:4px">If you're opening this from WhatsApp or another app, tap the link's menu and choose "Open in Browser" first — in-app browsers often block sound.</p>
   <p style="opacity:.7;font-size:.8em;margin-top:4px">On iPhone, Safari won't go fullscreen for web pages — for the closest thing, add this page to your Home Screen (Share → Add to Home Screen) and open it from there instead.</p>
 </div>
@@ -188,7 +189,7 @@ firebase.initializeApp(firebaseConfig);
 const authReady = firebase.auth().signInAnonymously().catch(e=>{ console.error('Anonymous auth failed:', e); });
 const rtdb = firebase.database();
 
-const APP_VERSION='2026.10.25';
+const APP_VERSION='2026.10.25b';
 let audioCtx=null, lastPingKey=null, lastRevealFired=null, lastMyCardKey=undefined, lastLogLen=null, lastElimShown=null, lastLives={}, lastReactionShown=null, reactionBarTimer=null, revealReadyKey=null, swapAnimating=false, lastSwapShown=null, lastMyCard=null, lastDealRound=null, lastWinKey=null, lastForceReload=null, lastTieEventSeen=null, tieRevealedSeen={}, lastTieReadyKey=null, tieReadyAt=null, lastTieResolvedShown=null, lastAutoKingKey=null, lastSpectatorSwapShown=null;
 function floodEmojiScreen(emoji){
   for(let i=0;i<15;i++){
@@ -1030,7 +1031,7 @@ document.getElementById('forceReloadBtn').onclick=async()=>{
 };
 document.getElementById('shareBtn').onclick=async()=>{
   if(!roomCode) return;
-  const url='https://lst-2k.github.io/chasetheace/';
+  const url='https://lst-2k.github.io/chasetheace/?code='+encodeURIComponent(roomCode);
   const text='Join my Chase the Ace table! Table code: '+roomCode;
   const msg=document.getElementById('shareMsg');
   if(navigator.share){
@@ -1055,10 +1056,22 @@ document.getElementById('leaveBtn').onclick=()=>{
 document.addEventListener('visibilitychange',()=>{ if(document.visibilityState==='visible') ensureAudio(); });
 window.addEventListener('focus',ensureAudio);
 window.addEventListener('pageshow',ensureAudio);
+let linkCodeFromUrl='';
+(function prefillFromLink(){
+  try{ linkCodeFromUrl=(new URLSearchParams(location.search).get('code')||'').trim().toUpperCase().slice(0,4); }catch(e){}
+  let sn='';
+  try{ sn=localStorage.getItem('cta_name')||''; }catch(e){}
+  if(sn) document.getElementById('nameInput').value=sn;
+  if(linkCodeFromUrl){
+    document.getElementById('codeInput').value=linkCodeFromUrl;
+    document.getElementById('linkMsg').textContent='Table code '+linkCodeFromUrl+' filled in — enter your name and tap Join Table.';
+  }
+})();
 (async function tryAutoRejoin(){
   let savedRoom, savedName;
   try{ savedRoom=localStorage.getItem('cta_room'); savedName=localStorage.getItem('cta_name'); }catch(e){ return; }
   if(!savedRoom) return;
+  if(linkCodeFromUrl && linkCodeFromUrl!==savedRoom) return;
   await authReady;
   try{
     const snap=await rtdb.ref('games/'+savedRoom).once('value');
